@@ -171,6 +171,25 @@ private slots:
         QVERIFY(!backend->muted());
         QCOMPARE(backend->volume(), 37);
         QCOMPARE(volume->value(), 37);
+        // Keyboard shortcuts must work even after clicking the volume slider.
+        window.activateWindow();
+        QTRY_VERIFY(window.isActiveWindow());
+        volume->setFocus();
+        QTRY_VERIFY(volume->hasFocus());
+        QTest::keyClick(volume, Qt::Key_Space);
+        QTRY_COMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        backend->seek(12000);
+        QTest::keyClick(volume, Qt::Key_Right);
+        QTRY_COMPARE(backend->position(), qint64(22000));
+        QTest::keyClick(volume, Qt::Key_Left);
+        QTRY_COMPARE(backend->position(), qint64(12000));
+        QCOMPARE(volume->value(), 37);
+        QCOMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        QTest::keyClick(volume, Qt::Key_Space);
+        QTRY_VERIFY(backend->playing());
+        QTest::keyClick(volume, Qt::Key_Right);
+        QTRY_VERIFY(backend->position() >= 22000 && backend->position() < 23000);
+        QVERIFY(backend->playing());
         window.findChild<QAction *>("stopAction")->trigger();
         QCOMPARE(backend->position(), qint64(0));
         QVERIFY(!backend->playing());

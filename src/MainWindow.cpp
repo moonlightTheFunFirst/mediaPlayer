@@ -139,14 +139,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         button->setFocusPolicy(Qt::NoFocus);
         return button;
     };
-    m_backward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekBackward), "seekBackwardButton", tr("10秒戻る"));
+    m_backward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekBackward), "seekBackwardButton", tr("10秒戻る (←)"));
     m_play = iconButton(mediaIcon(this, QStyle::SP_MediaPlay), "playButton", tr("再生"));
     m_pause = iconButton(mediaIcon(this, QStyle::SP_MediaPause), "pauseButton", tr("一時停止"));
-    m_forward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekForward), "seekForwardButton", tr("10秒進む"));
+    m_forward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekForward), "seekForwardButton", tr("10秒進む (→)"));
     m_mute = iconButton(mediaIcon(this, QStyle::SP_MediaVolume), "muteButton", tr("ミュート (M)"));
     m_mute->setCheckable(true);
     auto *volume = new QSlider(Qt::Horizontal);
     volume->setObjectName("volumeSlider");
+    volume->installEventFilter(this);
     volume->setAccessibleName(tr("音量"));
     volume->setRange(0, 100);
     volume->setValue(m_backend->volume());
@@ -169,7 +170,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     fileMenu->addAction(tr("開く…"), QKeySequence::Open, this, &MainWindow::chooseFile);
     fileMenu->addAction(tr("終了"), QKeySequence::Quit, this, &QWidget::close);
     auto *playMenu = menuBar()->addMenu(tr("再生(&P)"));
-    playMenu->addAction(tr("再生／一時停止"), QKeySequence(Qt::Key_Space), m_backend, &MediaBackend::togglePlayback);
+    auto *toggleAction = playMenu->addAction(tr("再生／一時停止"), QKeySequence(Qt::Key_Space), m_backend, &MediaBackend::togglePlayback);
+    toggleAction->setAutoRepeat(false);
+    playMenu->addAction(tr("10秒戻る"), QKeySequence(Qt::Key_Left), this, [this] { m_backend->seek(m_backend->position() - 10000); });
+    playMenu->addAction(tr("10秒進む"), QKeySequence(Qt::Key_Right), this, [this] { m_backend->seek(m_backend->position() + 10000); });
     auto *stopAction = playMenu->addAction(tr("停止（先頭に戻す）"), m_backend, &MediaBackend::stop);
     stopAction->setObjectName("stopAction");
     playMenu->addAction(tr("ミュート"), QKeySequence(Qt::Key_M), this, [this] { m_backend->setMuted(!m_backend->muted()); });
@@ -246,6 +250,14 @@ void MainWindow::dropEvent(QDropEvent *event)
 }
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::ShortcutOverride && qobject_cast<QSlider *>(watched)) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->modifiers() == Qt::NoModifier && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
+            // Let the window's seek shortcuts win over QSlider's arrow handling.
+            event->ignore();
+            return true;
+        }
+    }
     if (handleFileDrop(event)) return true;
     return QMainWindow::eventFilter(watched, event);
 }
