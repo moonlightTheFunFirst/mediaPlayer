@@ -103,6 +103,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     setAcceptDrops(true);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
+    // Let the video reach the menu bar and both window edges.
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
     auto *video = new QVideoWidget;
     // QVideoWidget embeds a window container which accepts DragEnter but does
     // not implement file drops. Intercept its events before it consumes them.
@@ -122,6 +125,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     layout->addWidget(video, 1);
     m_backend->setVideoSink(video->videoSink());
     auto *timeline = new QHBoxLayout;
+    timeline->setContentsMargins(6, 0, 6, 0);
     m_seek = new SeekSlider;
     m_seek->setObjectName("seekSlider");
     m_time = new QLabel;
@@ -129,6 +133,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     timeline->addWidget(m_time);
     layout->addLayout(timeline);
     auto *controls = new QHBoxLayout;
+    controls->setContentsMargins(6, 0, 6, 6);
     auto iconButton = [](const QIcon &icon, const QString &name, const QString &label) {
         auto *button = new QPushButton;
         button->setObjectName(name);
@@ -168,6 +173,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     layout->addLayout(controls);
     setCentralWidget(central);
     m_preview = new SeekPreview(m_seek);
+    // Keep the height font-driven so menu text also fits at higher DPI.
+    menuBar()->setStyleSheet("QMenuBar { padding: 0px; margin: 0px; }"
+                            "QMenuBar::item { padding: 2px 8px; margin: 0px; }");
     auto *fileMenu = menuBar()->addMenu(tr("ファイル(&F)"));
     fileMenu->addAction(tr("開く…"), QKeySequence::Open, this, &MainWindow::chooseFile);
     fileMenu->addAction(tr("終了"), QKeySequence::Quit, this, &QWidget::close);
