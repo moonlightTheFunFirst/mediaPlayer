@@ -20,6 +20,26 @@
 #include <QPainter>
 
 namespace {
+QIcon fullscreenIcon(QWidget *widget)
+{
+    const qreal scale = widget->devicePixelRatioF();
+    QPixmap pixmap(qRound(22 * scale), qRound(22 * scale));
+    pixmap.setDevicePixelRatio(scale);
+    pixmap.fill(Qt::transparent);
+    {
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(widget->palette().color(QPalette::ButtonText), 2, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+        // Four open corners suggest expanding the picture to fill the screen.
+        for (const auto &corner : {QPointF(3, 3), QPointF(19, 3), QPointF(3, 19), QPointF(19, 19)}) {
+            const qreal dx = corner.x() < 11 ? 5 : -5;
+            const qreal dy = corner.y() < 11 ? 5 : -5;
+            painter.drawLine(corner, corner + QPointF(dx, 0));
+            painter.drawLine(corner, corner + QPointF(0, dy));
+        }
+    }
+    return QIcon(pixmap);
+}
 QIcon mediaIcon(QWidget *widget, QStyle::StandardPixmap symbol)
 {
     QIcon result;
@@ -108,11 +128,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     timeline->addWidget(m_time);
     layout->addLayout(timeline);
     auto *controls = new QHBoxLayout;
-    auto *open = new QPushButton(tr("開く"));
-    auto iconButton = [this](QStyle::StandardPixmap icon, const QString &name, const QString &label) {
+    auto iconButton = [](const QIcon &icon, const QString &name, const QString &label) {
         auto *button = new QPushButton;
         button->setObjectName(name);
-        button->setIcon(mediaIcon(this, icon));
+        button->setIcon(icon);
         button->setIconSize(QSize(22, 22));
         button->setFixedSize(40, 32);
         button->setToolTip(label);
@@ -120,11 +139,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         button->setFocusPolicy(Qt::NoFocus);
         return button;
     };
-    m_backward = iconButton(QStyle::SP_MediaSeekBackward, "seekBackwardButton", tr("10秒戻る"));
-    m_play = iconButton(QStyle::SP_MediaPlay, "playButton", tr("再生"));
-    m_pause = iconButton(QStyle::SP_MediaPause, "pauseButton", tr("一時停止"));
-    m_forward = iconButton(QStyle::SP_MediaSeekForward, "seekForwardButton", tr("10秒進む"));
-    m_mute = iconButton(QStyle::SP_MediaVolume, "muteButton", tr("ミュート (M)"));
+    m_backward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekBackward), "seekBackwardButton", tr("10秒戻る"));
+    m_play = iconButton(mediaIcon(this, QStyle::SP_MediaPlay), "playButton", tr("再生"));
+    m_pause = iconButton(mediaIcon(this, QStyle::SP_MediaPause), "pauseButton", tr("一時停止"));
+    m_forward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekForward), "seekForwardButton", tr("10秒進む"));
+    m_mute = iconButton(mediaIcon(this, QStyle::SP_MediaVolume), "muteButton", tr("ミュート (M)"));
     m_mute->setCheckable(true);
     auto *volume = new QSlider(Qt::Horizontal);
     volume->setObjectName("volumeSlider");
@@ -135,13 +154,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     volume->setToolTip(tr("音量 0～100%"));
     auto *volumeText = new QLabel(tr("50%"));
     volumeText->setMinimumWidth(36);
-    auto *fullscreen = new QPushButton(tr("全画面"));
-    for (auto *button : {open, m_backward, m_play, m_pause, m_forward, fullscreen}) {
+    auto *fullscreen = iconButton(fullscreenIcon(this), "fullscreenButton", tr("全画面切り替え (F11)、解除 (Esc)"));
+    for (auto *button : {m_backward, m_play, m_pause, m_forward, fullscreen}) {
         button->setFocusPolicy(Qt::NoFocus);
         controls->addWidget(button);
     }
-    open->setToolTip(tr("ファイルを開く (Ctrl+O)"));
-    fullscreen->setToolTip(tr("全画面切り替え (F11)、解除 (Esc)"));
     controls->addStretch();
     controls->addWidget(m_mute);
     controls->addWidget(volume);
@@ -161,7 +178,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     viewMenu->addAction(tr("全画面"), QKeySequence(Qt::Key_F11), this, toggleFullscreen);
     viewMenu->addAction(tr("全画面解除"), QKeySequence(Qt::Key_Escape), this, [this] { if (isFullScreen()) showNormal(); });
     connect(fullscreen, &QPushButton::clicked, this, toggleFullscreen);
-    connect(open, &QPushButton::clicked, this, &MainWindow::chooseFile);
     connect(m_play, &QPushButton::clicked, this, [this] {
         if (!m_backend->playing()) m_backend->togglePlayback();
     });
