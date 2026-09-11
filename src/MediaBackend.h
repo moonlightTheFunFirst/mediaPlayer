@@ -23,6 +23,7 @@ public:
     qint64 duration() const;
     bool seekable() const;
     bool playing() const;
+    bool hasVideo() const;
     bool available() const;
     bool muted() const;
     int volume() const;

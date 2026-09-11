@@ -42,6 +42,7 @@ void MediaBackend::open(const QString &path)
     connect(m_player, &QMediaPlayer::positionChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::durationChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::seekableChanged, this, &MediaBackend::changed);
+    connect(m_player, &QMediaPlayer::hasVideoChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::mediaStatusChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::errorOccurred, this, [this](auto, const QString &detail) {
@@ -80,6 +81,7 @@ qint64 MediaBackend::position() const { return m_player ? m_player->position() :
 qint64 MediaBackend::duration() const { return m_player ? m_player->duration() : 0; }
 bool MediaBackend::seekable() const { return available() && m_player->isSeekable() && duration() > 0; }
 bool MediaBackend::playing() const { return m_player && m_player->playbackState() == QMediaPlayer::PlayingState; }
+bool MediaBackend::hasVideo() const { return m_player && m_player->hasVideo(); }
 bool MediaBackend::available() const { return m_player && m_player->error() == QMediaPlayer::NoError && m_player->mediaStatus() != QMediaPlayer::InvalidMedia; }
 QString MediaBackend::statusText() const
 {

@@ -13,6 +13,8 @@ WMV・MP4・AVIの基本再生を実装しました。以下の仕様全体の�
 
 詳細なビルド・配布手順と検証結果は [windows/README.md](windows/README.md)、依存ライブラリは [windows/THIRD_PARTY.md](windows/THIRD_PARTY.md) を参照してください。
 
+`codex/seek-preview`ブランチでは、シークバーのホバー／ドラッグ中に時刻とサムネイルを表示する機能を追加しています。通常再生とは独立した無音デコードを使用し、音声のみ・画像取得失敗時は時刻のみ表示します。詳細と制限はWindows版READMEを参照してください。
+
 ### 再生検証
 
 Windows 11 x64 / Qt 6.8.3 / Qt Multimedia FFmpeg 7.1バックエンドで確認。

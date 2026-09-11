@@ -18,12 +18,106 @@
 #include <QSlider>
 #include <QAction>
 #include <QDataStream>
+#include "../src/ThumbnailProvider.h"
+#include <QLabel>
+#include <QFrame>
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void thumbnail_data()
+    {
+        QTest::addColumn<QString>("sample");
+        QTest::newRow("MP4") << QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
+        QTest::newRow("AVI") << QDir(root).filePath("qmediaplayerformatsupport/testdata/containers/supported/container.avi");
+        QTest::newRow("WMV") << QDir(root).filePath("qmediaplayerformatsupport/testdata/containers/supported/container.wmv");
+        if (!qEnvironmentVariableIsEmpty("WMV9_SAMPLE")) QTest::newRow("WMV9") << qEnvironmentVariable("WMV9_SAMPLE");
+    }
+    void thumbnail()
+    {
+        QFETCH(QString, sample);
+        ThumbnailProvider provider;
+        QSignalSpy ready(&provider, &ThumbnailProvider::ready);
+        provider.setSource(sample);
+        provider.request(0);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 10000);
+        const auto image = qvariant_cast<QImage>(ready.first().at(1));
+        QVERIFY(!image.isNull());
+        QVERIFY(image.width() <= 200 && image.height() <= 112);
+        ready.clear();
+        provider.request(0);
+        QCOMPARE(ready.size(), 1); // Cached response is immediate.
+        const qint64 later = sample.contains("nokia_n90") ? 12000 : sample.contains("3colors") ? 2000 : 0;
+        if (later > 0) {
+            ready.clear();
+            provider.request(later);
+            QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 10000);
+            const auto laterImage = qvariant_cast<QImage>(ready.first().at(1));
+            QVERIFY(!laterImage.isNull());
+            QVERIFY(laterImage != image);
+        }
+    }
+    void hoverPreview_data()
+    {
+        QTest::addColumn<bool>("fullscreen");
+        QTest::newRow("window") << false;
+        QTest::newRow("fullscreen") << true;
+    }
+    void hoverPreview()
+    {
+        QFETCH(bool, fullscreen);
+        MainWindow window;
+        if (fullscreen) window.showFullScreen(); else window.show();
+        window.activateWindow();
+        const QString mp4 = QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
+        window.openFile(mp4);
+        auto *backend = window.findChild<MediaBackend *>();
+        QTRY_VERIFY(backend->playing() && backend->seekable() && backend->hasVideo());
+        backend->pause();
+        const qint64 originalPosition = backend->position();
+        auto *slider = window.findChild<QSlider *>("seekSlider");
+        auto *popup = window.findChild<QFrame *>("seekPreviewPopup");
+        auto *image = window.findChild<QLabel *>("seekPreviewImage");
+        auto *time = window.findChild<QLabel *>("seekPreviewTime");
+        QVERIFY(slider && popup && image && time);
+        QTRY_VERIFY(window.isActiveWindow());
+        QTest::mouseMove(&window, QPoint(30, 30));
+        QTest::qWait(50);
+        QTest::mouseMove(slider, QPoint(slider->width() / 2, slider->height() / 2));
+        QTRY_VERIFY(popup->isVisible());
+        QCOMPARE(time->text(), QString("00:01"));
+        QTRY_VERIFY_WITH_TIMEOUT(!image->pixmap().isNull(), 10000);
+        QCOMPARE(backend->position(), originalPosition);
+        QCOMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        if (!qEnvironmentVariableIsEmpty("MEDIAPLAYER_PREVIEW_SCREENSHOT"))
+            QVERIFY(popup->grab().save(qEnvironmentVariable("MEDIAPLAYER_PREVIEW_SCREENSHOT")));
+        QTest::mouseMove(slider, QPoint(0, slider->height() / 2));
+        QTRY_COMPARE(time->text(), QString("00:00"));
+        QVERIFY(popup->frameGeometry().left() >= window.frameGeometry().left());
+        QTest::mouseMove(slider, QPoint(slider->width() - 1, slider->height() / 2));
+        QVERIFY(popup->frameGeometry().right() <= window.frameGeometry().right());
+        QTest::mousePress(slider, Qt::LeftButton, Qt::NoModifier, QPoint(slider->width() / 3, slider->height() / 2));
+        QTest::mouseMove(slider, QPoint(slider->width() * 2 / 3, slider->height() / 2));
+        QVERIFY(popup->isVisible());
+        QCOMPARE(backend->position(), originalPosition);
+        QTest::mouseRelease(slider, Qt::LeftButton, Qt::NoModifier, QPoint(slider->width() * 2 / 3, slider->height() / 2));
+        QTRY_VERIFY(backend->position() > 1800);
+        QCOMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        QTest::mouseMove(&window, QPoint(20, 20));
+        QTRY_VERIFY(!popup->isVisible());
+        // Latest source wins even when a decode from the previous file is pending.
+        ThumbnailProvider provider;
+        QSignalSpy ready(&provider, &ThumbnailProvider::ready);
+        provider.setSource(mp4);
+        provider.request(2000);
+        provider.setSource(QDir(root).filePath("qmediaplayerformatsupport/testdata/containers/supported/container.avi"));
+        provider.request(0);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 10000);
+        QCOMPARE(ready.first().at(0).toLongLong(), qint64(0));
+        QVERIFY(!qvariant_cast<QImage>(ready.first().at(1)).isNull());
+    }
     void dropOnVideoSurface_data()
     {
         QTest::addColumn<bool>("fullscreen");
@@ -143,6 +237,13 @@ private slots:
         }
         window.openFile(file.fileName());
         QTRY_VERIFY(backend->playing() && backend->seekable());
+        auto *seek = window.findChild<QSlider *>("seekSlider");
+        QEnterEvent audioHover(QPointF(20, 10), QPointF(20, 10), QPointF(seek->mapToGlobal(QPoint(20, 10))));
+        QApplication::sendEvent(seek, &audioHover);
+        QVERIFY(window.findChild<QFrame *>("seekPreviewPopup")->isVisible());
+        QVERIFY(!window.findChild<QLabel *>("seekPreviewImage")->isVisible());
+        QEvent audioLeave(QEvent::Leave);
+        QApplication::sendEvent(seek, &audioLeave);
         QTest::mouseClick(pause, Qt::LeftButton);
         QTRY_COMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
         backend->seek(12000);
