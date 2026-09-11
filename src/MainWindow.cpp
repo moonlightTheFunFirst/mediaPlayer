@@ -15,6 +15,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QSignalBlocker>
+#include <QTimer>
 
 namespace {
 QString timestamp(qint64 ms)
@@ -64,6 +65,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     m_filename->setTextFormat(Qt::PlainText);
     layout->addWidget(m_filename);
     auto *video = new QVideoWidget;
+    // QVideoWidget embeds a window container which accepts DragEnter but does
+    // not implement file drops. Intercept its events before it consumes them.
+    video->setAcceptDrops(true);
+    video->installEventFilter(this);
+    for (auto *surface : video->findChildren<QWidget *>()) {
+        surface->setAcceptDrops(true);
+        surface->installEventFilter(this);
+    }
     video->setAspectRatioMode(Qt::KeepAspectRatio);
     video->setMinimumSize(320, 180);
     video->setStyleSheet("background-color: black;");
@@ -172,11 +181,49 @@ void MainWindow::refresh()
 }
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
-    if (event->mimeData()->hasUrls() && !event->mimeData()->urls().isEmpty() && event->mimeData()->urls().first().isLocalFile()) event->acceptProposedAction();
+    handleFileDrop(event);
+}
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    handleFileDrop(event);
 }
 void MainWindow::dropEvent(QDropEvent *event)
 {
-    if (event->mimeData()->hasUrls() && !event->mimeData()->urls().isEmpty() && event->mimeData()->urls().first().isLocalFile()) {
-        openFile(event->mimeData()->urls().first().toLocalFile()); event->acceptProposedAction();
+    handleFileDrop(event);
+}
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (handleFileDrop(event)) return true;
+    return QMainWindow::eventFilter(watched, event);
+}
+bool MainWindow::handleFileDrop(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::DragEnter:
+    case QEvent::DragMove:
+    case QEvent::Drop:
+        break;
+    case QEvent::DragLeave:
+        event->accept();
+        return true;
+    default:
+        return false;
     }
+    auto *drop = static_cast<QDropEvent *>(event);
+    const auto urls = drop->mimeData()->urls();
+    // Opening a file must never request that the drag source move/delete it.
+    if (urls.isEmpty() || !urls.first().isLocalFile()
+        || !QFileInfo(urls.first().toLocalFile()).isFile()
+        || !drop->possibleActions().testFlag(Qt::CopyAction)) {
+        drop->ignore();
+        return true;
+    }
+    drop->setDropAction(Qt::CopyAction);
+    drop->accept();
+    if (event->type() == QEvent::Drop) {
+        const QString path = urls.first().toLocalFile();
+        // Finish the OS drag transaction before opening media and creating outputs.
+        QTimer::singleShot(0, this, [this, path] { openFile(path); });
+    }
+    return true;
 }

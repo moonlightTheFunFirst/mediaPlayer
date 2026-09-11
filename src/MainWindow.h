@@ -13,9 +13,12 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     void openFile(const QString &path);
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
 private:
+    bool handleFileDrop(QEvent *event);
     void chooseFile();
     void refresh();
     MediaBackend *m_backend;

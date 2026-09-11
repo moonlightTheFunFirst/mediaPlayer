@@ -11,12 +11,77 @@
 #include "../src/MainWindow.h"
 #include <QVideoWidget>
 #include <QPushButton>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void dropOnVideoSurface_data()
+    {
+        QTest::addColumn<bool>("fullscreen");
+        QTest::addColumn<bool>("alreadyPlaying");
+        QTest::newRow("window-empty") << false << false;
+        QTest::newRow("window-playing") << false << true;
+        QTest::newRow("fullscreen-playing") << true << true;
+    }
+    void dropOnVideoSurface()
+    {
+        QFETCH(bool, fullscreen);
+        QFETCH(bool, alreadyPlaying);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QString::fromUtf8("ドロップ 動画.avi"));
+        QVERIFY(QFile::copy(QDir(root).filePath("qmediaplayerformatsupport/testdata/containers/supported/container.avi"), path));
+        MainWindow window;
+        if (fullscreen) window.showFullScreen(); else window.show();
+        auto *video = window.findChild<QVideoWidget *>();
+        QVERIFY(video);
+        if (alreadyPlaying) {
+            window.openFile(QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"));
+            QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 15000);
+        }
+        // Qt's embedded video window container consumes drag events before MainWindow.
+        const auto children = video->findChildren<QWidget *>();
+        QVERIFY(!children.isEmpty());
+        QWidget *surface = children.first();
+        QMimeData mime;
+        mime.setUrls({QUrl::fromLocalFile(path)});
+        QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(surface, &enter);
+        QVERIFY(enter.isAccepted());
+        QDragMoveEvent move(QPoint(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(surface, &move);
+        QVERIFY(move.isAccepted());
+        QDropEvent drop(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(surface, &drop);
+        QVERIFY(drop.isAccepted());
+        auto *backend = window.findChild<MediaBackend *>();
+        QTRY_COMPARE(backend->filePath(), path);
+        QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 15000);
+        QCOMPARE(drop.dropAction(), Qt::CopyAction);
+        QVERIFY(QFileInfo::exists(path));
+    }
+    void rejectNonFileDrops()
+    {
+        MainWindow window;
+        window.show();
+        auto *surface = window.findChild<QVideoWidget *>()->findChildren<QWidget *>().first();
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const auto &url : {QUrl("https://example.com/video.mp4"), QUrl::fromLocalFile(dir.path()), QUrl::fromLocalFile(dir.filePath("missing.mp4"))}) {
+            QMimeData mime;
+            mime.setUrls({url});
+            QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(surface, &enter);
+            QVERIFY(!enter.isAccepted());
+        }
+        QVERIFY(window.findChild<MediaBackend *>()->filePath().isEmpty());
+    }
     void widgetControls()
     {
         MainWindow window;
