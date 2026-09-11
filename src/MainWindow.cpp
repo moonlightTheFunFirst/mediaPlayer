@@ -61,9 +61,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     setAcceptDrops(true);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
-    m_filename = new QLabel(tr("ファイル未選択"));
-    m_filename->setTextFormat(Qt::PlainText);
-    layout->addWidget(m_filename);
     auto *video = new QVideoWidget;
     // QVideoWidget embeds a window container which accepts DragEnter but does
     // not implement file drops. Intercept its events before it consumes them.
@@ -173,8 +170,6 @@ void MainWindow::refresh()
     }
     if (!m_backend->filePath().isEmpty()) {
         const QString name = QFileInfo(m_backend->filePath()).fileName();
-        m_filename->setText(name);
-        m_filename->setToolTip(m_backend->filePath());
         setWindowTitle(name + tr(" — Media Player"));
     }
     statusBar()->showMessage(m_backend->statusText());

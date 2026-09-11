@@ -24,7 +24,6 @@ private:
     MediaBackend *m_backend;
     QSlider *m_seek;
     QLabel *m_time;
-    QLabel *m_filename;
     QPushButton *m_play;
     QPushButton *m_stop;
     QPushButton *m_mute;
