@@ -16,8 +16,29 @@
 #include <QMimeData>
 #include <QSignalBlocker>
 #include <QTimer>
+#include <QAction>
+#include <QPainter>
 
 namespace {
+QIcon mediaIcon(QWidget *widget, QStyle::StandardPixmap symbol)
+{
+    QIcon result;
+    const qreal scale = widget->devicePixelRatioF();
+    const int pixels = qRound(22 * scale);
+    const QIcon source = widget->style()->standardIcon(symbol);
+    for (const auto mode : {QIcon::Normal, QIcon::Disabled}) {
+        QPixmap pixmap = source.pixmap(pixels, pixels);
+        {
+            QPainter painter(&pixmap);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            painter.fillRect(pixmap.rect(), widget->palette().color(
+                mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active, QPalette::ButtonText));
+        }
+        pixmap.setDevicePixelRatio(scale);
+        result.addPixmap(pixmap, mode);
+    }
+    return result;
+}
 QString timestamp(qint64 ms)
 {
     const qint64 seconds = ms / 1000;
@@ -88,11 +109,26 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     layout->addLayout(timeline);
     auto *controls = new QHBoxLayout;
     auto *open = new QPushButton(tr("開く"));
-    m_play = new QPushButton;
-    m_stop = new QPushButton(tr("停止"));
-    m_mute = new QPushButton(tr("ミュート"));
+    auto iconButton = [this](QStyle::StandardPixmap icon, const QString &name, const QString &label) {
+        auto *button = new QPushButton;
+        button->setObjectName(name);
+        button->setIcon(mediaIcon(this, icon));
+        button->setIconSize(QSize(22, 22));
+        button->setFixedSize(40, 32);
+        button->setToolTip(label);
+        button->setAccessibleName(label);
+        button->setFocusPolicy(Qt::NoFocus);
+        return button;
+    };
+    m_backward = iconButton(QStyle::SP_MediaSeekBackward, "seekBackwardButton", tr("10秒戻る"));
+    m_play = iconButton(QStyle::SP_MediaPlay, "playButton", tr("再生"));
+    m_pause = iconButton(QStyle::SP_MediaPause, "pauseButton", tr("一時停止"));
+    m_forward = iconButton(QStyle::SP_MediaSeekForward, "seekForwardButton", tr("10秒進む"));
+    m_mute = iconButton(QStyle::SP_MediaVolume, "muteButton", tr("ミュート (M)"));
     m_mute->setCheckable(true);
     auto *volume = new QSlider(Qt::Horizontal);
+    volume->setObjectName("volumeSlider");
+    volume->setAccessibleName(tr("音量"));
     volume->setRange(0, 100);
     volume->setValue(m_backend->volume());
     volume->setMaximumWidth(140);
@@ -100,17 +136,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     auto *volumeText = new QLabel(tr("50%"));
     volumeText->setMinimumWidth(36);
     auto *fullscreen = new QPushButton(tr("全画面"));
-    for (auto *button : {open, m_play, m_stop, m_mute, fullscreen}) {
+    for (auto *button : {open, m_backward, m_play, m_pause, m_forward, fullscreen}) {
         button->setFocusPolicy(Qt::NoFocus);
         controls->addWidget(button);
     }
     open->setToolTip(tr("ファイルを開く (Ctrl+O)"));
-    m_play->setToolTip(tr("再生／一時停止 (Space)"));
-    m_stop->setToolTip(tr("停止して先頭に戻す"));
-    m_mute->setToolTip(tr("ミュート切り替え (M)"));
     fullscreen->setToolTip(tr("全画面切り替え (F11)、解除 (Esc)"));
     controls->addStretch();
-    controls->addWidget(new QLabel(tr("音量")));
+    controls->addWidget(m_mute);
     controls->addWidget(volume);
     controls->addWidget(volumeText);
     layout->addLayout(controls);
@@ -120,7 +153,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     fileMenu->addAction(tr("終了"), QKeySequence::Quit, this, &QWidget::close);
     auto *playMenu = menuBar()->addMenu(tr("再生(&P)"));
     playMenu->addAction(tr("再生／一時停止"), QKeySequence(Qt::Key_Space), m_backend, &MediaBackend::togglePlayback);
-    playMenu->addAction(tr("停止"), m_backend, &MediaBackend::stop);
+    auto *stopAction = playMenu->addAction(tr("停止（先頭に戻す）"), m_backend, &MediaBackend::stop);
+    stopAction->setObjectName("stopAction");
     playMenu->addAction(tr("ミュート"), QKeySequence(Qt::Key_M), this, [this] { m_backend->setMuted(!m_backend->muted()); });
     auto toggleFullscreen = [this] { isFullScreen() ? showNormal() : showFullScreen(); };
     auto *viewMenu = menuBar()->addMenu(tr("表示(&V)"));
@@ -128,8 +162,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     viewMenu->addAction(tr("全画面解除"), QKeySequence(Qt::Key_Escape), this, [this] { if (isFullScreen()) showNormal(); });
     connect(fullscreen, &QPushButton::clicked, this, toggleFullscreen);
     connect(open, &QPushButton::clicked, this, &MainWindow::chooseFile);
-    connect(m_play, &QPushButton::clicked, m_backend, &MediaBackend::togglePlayback);
-    connect(m_stop, &QPushButton::clicked, m_backend, &MediaBackend::stop);
+    connect(m_play, &QPushButton::clicked, this, [this] {
+        if (!m_backend->playing()) m_backend->togglePlayback();
+    });
+    connect(m_pause, &QPushButton::clicked, m_backend, &MediaBackend::pause);
+    connect(m_backward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() - 10000); });
+    connect(m_forward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() + 10000); });
     connect(m_mute, &QPushButton::clicked, m_backend, &MediaBackend::setMuted);
     connect(volume, &QSlider::valueChanged, this, [this, volumeText](int value) {
         m_backend->setVolume(value); volumeText->setText(tr("%1%").arg(value));
@@ -158,11 +196,15 @@ void MainWindow::chooseFile()
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
 void MainWindow::refresh()
 {
-    m_play->setText(m_backend->playing() ? tr("一時停止") : tr("再生"));
-    m_play->setEnabled(m_backend->available());
-    m_stop->setEnabled(m_backend->available());
+    m_play->setEnabled(m_backend->available() && !m_backend->playing());
+    m_pause->setEnabled(m_backend->available() && m_backend->playing());
+    m_backward->setEnabled(m_backend->seekable());
+    m_forward->setEnabled(m_backend->seekable());
     m_seek->setEnabled(m_backend->seekable());
     m_mute->setChecked(m_backend->muted());
+    m_mute->setIcon(mediaIcon(this, m_backend->muted() ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
+    m_mute->setToolTip(m_backend->muted() ? tr("ミュート解除 (M)") : tr("ミュート (M)"));
+    m_mute->setAccessibleName(m_mute->toolTip());
     if (!m_seek->isSliderDown()) {
         const QSignalBlocker blocker(m_seek);
         m_seek->setValue(m_backend->duration() > 0 ? int(m_backend->position() * m_seek->maximum() / m_backend->duration()) : 0);

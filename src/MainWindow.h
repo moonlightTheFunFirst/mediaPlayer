@@ -25,6 +25,8 @@ private:
     QSlider *m_seek;
     QLabel *m_time;
     QPushButton *m_play;
-    QPushButton *m_stop;
+    QPushButton *m_pause;
+    QPushButton *m_backward;
+    QPushButton *m_forward;
     QPushButton *m_mute;
 };

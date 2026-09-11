@@ -15,6 +15,9 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QSlider>
+#include <QAction>
+#include <QDataStream>
 
 class PlaybackTests : public QObject
 {
@@ -90,21 +93,87 @@ private slots:
         auto *video = window.findChild<QVideoWidget *>();
         QVERIFY(video);
         QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 15000);
-        QPushButton *pause = nullptr;
-        QPushButton *stop = nullptr;
-        for (auto *button : window.findChildren<QPushButton *>()) {
-            if (button->text() == QString::fromUtf8("一時停止")) pause = button;
-            if (button->text() == QString::fromUtf8("停止")) stop = button;
-        }
+        auto *pause = window.findChild<QPushButton *>("pauseButton");
+        auto *play = window.findChild<QPushButton *>("playButton");
+        auto *stop = window.findChild<QAction *>("stopAction");
         QVERIFY(pause);
+        QVERIFY(play);
         QVERIFY(stop);
         QTest::mouseClick(pause, Qt::LeftButton);
-        QCOMPARE(pause->text(), QString::fromUtf8("再生"));
+        QVERIFY(play->isEnabled());
+        QVERIFY(!pause->isEnabled());
         QTest::qWait(250); // Allow the video widget to present its paused frame.
         const QString screenshot = qEnvironmentVariable("MEDIAPLAYER_SCREENSHOT");
         if (!screenshot.isEmpty()) QVERIFY(window.grab().save(screenshot));
-        QTest::mouseClick(stop, Qt::LeftButton);
-        QCOMPARE(pause->text(), QString::fromUtf8("再生"));
+        stop->trigger();
+        QCOMPARE(window.findChild<MediaBackend *>()->position(), qint64(0));
+        QVERIFY(play->isEnabled());
+    }
+    void transportButtons()
+    {
+        // A 30-second PCM fixture makes +/-10 second seeks deterministic.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QFile file(dir.filePath("transport.wav"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QDataStream stream(&file);
+        stream.setByteOrder(QDataStream::LittleEndian);
+        const quint32 bytes = 8000 * 2 * 30;
+        stream.writeRawData("RIFF", 4); stream << quint32(36 + bytes);
+        stream.writeRawData("WAVEfmt ", 8);
+        stream << quint32(16) << quint16(1) << quint16(1) << quint32(8000)
+               << quint32(16000) << quint16(2) << quint16(16);
+        stream.writeRawData("data", 4); stream << bytes;
+        file.write(QByteArray(bytes, '\0'));
+        file.close();
+        MainWindow window;
+        window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *play = window.findChild<QPushButton *>("playButton");
+        auto *pause = window.findChild<QPushButton *>("pauseButton");
+        auto *backward = window.findChild<QPushButton *>("seekBackwardButton");
+        auto *forward = window.findChild<QPushButton *>("seekForwardButton");
+        auto *mute = window.findChild<QPushButton *>("muteButton");
+        auto *volume = window.findChild<QSlider *>("volumeSlider");
+        QVERIFY(play && pause && backward && forward && mute && volume);
+        for (auto *button : {play, pause, backward, forward}) {
+            QVERIFY(!button->isEnabled());
+            QVERIFY(!button->icon().isNull());
+            QVERIFY(!button->accessibleName().isEmpty());
+        }
+        window.openFile(file.fileName());
+        QTRY_VERIFY(backend->playing() && backend->seekable());
+        QTest::mouseClick(pause, Qt::LeftButton);
+        QTRY_COMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        backend->seek(12000);
+        QTest::mouseClick(forward, Qt::LeftButton);
+        QTRY_COMPARE(backend->position(), qint64(22000));
+        QTest::mouseClick(backward, Qt::LeftButton);
+        QTRY_COMPARE(backend->position(), qint64(12000));
+        QCOMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        backend->seek(3000);
+        QTest::mouseClick(backward, Qt::LeftButton);
+        QTRY_COMPARE(backend->position(), qint64(0));
+        backend->seek(25000);
+        QTest::mouseClick(forward, Qt::LeftButton);
+        QTRY_COMPARE(backend->position(), backend->duration());
+        backend->seek(5000);
+        QTest::mouseClick(play, Qt::LeftButton);
+        QTRY_VERIFY(backend->playing());
+        QTest::mouseClick(forward, Qt::LeftButton);
+        QTRY_VERIFY(backend->position() >= 15000 && backend->position() < 16000);
+        QVERIFY(backend->playing());
+        volume->setValue(37);
+        QTest::mouseClick(mute, Qt::LeftButton);
+        QVERIFY(backend->muted());
+        QVERIFY(mute->isChecked());
+        QTest::mouseClick(mute, Qt::LeftButton);
+        QVERIFY(!backend->muted());
+        QCOMPARE(backend->volume(), 37);
+        QCOMPARE(volume->value(), 37);
+        window.findChild<QAction *>("stopAction")->trigger();
+        QCOMPARE(backend->position(), qint64(0));
+        QVERIFY(!backend->playing());
     }
     void decode_data()
     {
