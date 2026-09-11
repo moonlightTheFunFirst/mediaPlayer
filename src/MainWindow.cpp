@@ -10,7 +10,6 @@
 #include <QPushButton>
 #include <QBoxLayout>
 #include <QMenuBar>
-#include <QStatusBar>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
@@ -245,7 +244,6 @@ void MainWindow::refresh()
         const QString name = QFileInfo(m_backend->filePath()).fileName();
         setWindowTitle(name + tr(" — Media Player"));
     }
-    statusBar()->showMessage(m_backend->statusText());
 }
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
