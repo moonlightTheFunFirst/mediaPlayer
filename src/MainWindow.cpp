@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "MediaBackend.h"
+#include "SeekPreview.h"
 #include <QVideoWidget>
 #include <QSlider>
 #include <QStyle>
@@ -122,7 +123,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     m_backend->setVideoSink(video->videoSink());
     auto *timeline = new QHBoxLayout;
     m_seek = new SeekSlider;
-    m_seek->setToolTip(tr("クリック・ドラッグで再生位置を移動"));
+    m_seek->setObjectName("seekSlider");
     m_time = new QLabel;
     timeline->addWidget(m_seek, 1);
     timeline->addWidget(m_time);
@@ -166,6 +167,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     controls->addWidget(volumeText);
     layout->addLayout(controls);
     setCentralWidget(central);
+    m_preview = new SeekPreview(m_seek);
     auto *fileMenu = menuBar()->addMenu(tr("ファイル(&F)"));
     fileMenu->addAction(tr("開く…"), QKeySequence::Open, this, &MainWindow::chooseFile);
     fileMenu->addAction(tr("終了"), QKeySequence::Quit, this, &QWidget::close);
@@ -221,6 +223,7 @@ void MainWindow::refresh()
     m_backward->setEnabled(m_backend->seekable());
     m_forward->setEnabled(m_backend->seekable());
     m_seek->setEnabled(m_backend->seekable());
+    m_preview->setMedia(m_backend->filePath(), m_backend->duration(), m_backend->seekable(), m_backend->hasVideo());
     m_mute->setChecked(m_backend->muted());
     m_mute->setIcon(mediaIcon(this, m_backend->muted() ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
     m_mute->setToolTip(m_backend->muted() ? tr("ミュート解除 (M)") : tr("ミュート (M)"));

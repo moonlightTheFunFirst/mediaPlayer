@@ -5,6 +5,7 @@ class MediaBackend;
 class QSlider;
 class QLabel;
 class QPushButton;
+class SeekPreview;
 
 class MainWindow : public QMainWindow
 {
@@ -23,6 +24,7 @@ private:
     void refresh();
     MediaBackend *m_backend;
     QSlider *m_seek;
+    SeekPreview *m_preview;
     QLabel *m_time;
     QPushButton *m_play;
     QPushButton *m_pause;
