@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QBoxLayout>
 #include <QMenuBar>
+#include <QMenu>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
@@ -187,6 +188,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     auto *stopAction = playMenu->addAction(tr("停止（先頭に戻す）"), m_backend, &MediaBackend::stop);
     stopAction->setObjectName("stopAction");
     playMenu->addAction(tr("ミュート"), QKeySequence(Qt::Key_M), this, [this] { m_backend->setMuted(!m_backend->muted()); });
+    m_dvdMenu = playMenu->addMenu(tr("DVDタイトル"));
+    m_dvdMenu->setObjectName("dvdTitlesMenu");
+    connect(m_dvdMenu, &QMenu::aboutToShow, this, [this] {
+        m_dvdMenu->clear();
+        const auto titles = m_backend->dvdTitles();
+        for (int i = 0; i < titles.size(); ++i) {
+            auto *action = m_dvdMenu->addAction(titles[i], this, [this, i] { m_backend->selectDvdTitle(i); });
+            action->setCheckable(true);
+            action->setChecked(i == m_backend->dvdTitle());
+        }
+    });
     auto toggleFullscreen = [this] { isFullScreen() ? showNormal() : showFullScreen(); };
     auto *viewMenu = menuBar()->addMenu(tr("表示(&V)"));
     viewMenu->addAction(tr("全画面"), QKeySequence(Qt::Key_F11), this, toggleFullscreen);
@@ -220,7 +232,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
 void MainWindow::chooseFile()
 {
     const QString path = QFileDialog::getOpenFileName(this, tr("動画・音声ファイルを開く"),
-        m_backend->filePath(), tr("動画ファイル (*.wmv *.mp4 *.avi *.m4v *.asf);;すべてのファイル (*)"));
+        m_backend->filePath(), tr("動画ファイル (*.wmv *.mp4 *.avi *.m4v *.asf *.iso);;すべてのファイル (*)"));
     if (!path.isEmpty()) openFile(path);
 }
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
@@ -231,7 +243,9 @@ void MainWindow::refresh()
     m_backward->setEnabled(m_backend->seekable());
     m_forward->setEnabled(m_backend->seekable());
     m_seek->setEnabled(m_backend->seekable());
-    m_preview->setMedia(m_backend->filePath(), m_backend->duration(), m_backend->seekable(), m_backend->hasVideo());
+    m_preview->setMedia(m_backend->filePath(), m_backend->duration(), m_backend->seekable(), m_backend->hasVideo() && !m_backend->isDvd());
+    m_dvdMenu->menuAction()->setVisible(m_backend->isDvd());
+    m_dvdMenu->setEnabled(!m_backend->dvdTitles().isEmpty());
     m_mute->setChecked(m_backend->muted());
     m_mute->setIcon(mediaIcon(this, m_backend->muted() ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
     m_mute->setToolTip(m_backend->muted() ? tr("ミュート解除 (M)") : tr("ミュート (M)"));

@@ -1,6 +1,7 @@
 #pragma once
 #include <QMediaPlayer>
 
+class DvdPlayer;
 class QAudioOutput;
 class QVideoSink;
 
@@ -29,11 +30,17 @@ public:
     int volume() const;
     QString filePath() const { return m_path; }
     QString statusText() const;
+    bool isDvd() const { return m_isDvd; }
+    QStringList dvdTitles() const;
+    int dvdTitle() const;
+    void selectDvdTitle(int index);
     QMediaPlayer *player() const { return m_player; } // Integration diagnostics.
 signals:
     void changed();
     void failure(const QString &path, const QString &message);
 private:
+    DvdPlayer *m_dvd;
+    bool m_isDvd = false;
     QMediaPlayer *m_player = nullptr;
     QAudioOutput *m_audio;
     QVideoSink *m_sink = nullptr;
