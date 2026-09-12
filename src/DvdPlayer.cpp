@@ -108,6 +108,8 @@ public:
     int desiredVolume = 50;
     int pendingTitle = -1;
     bool desiredMute = false;
+    bool looping = false, paused = false, endedHandled = false, keepTitle = false;
+    int loopTitle = -1;
     QMutex mutex;
     struct VideoBuffer {
         DvdWorker *owner;
@@ -126,6 +128,8 @@ public:
         QMutexLocker guard(&mutex);
         latest = {}; dirty = false;
         state = {}; titlesRead = false; failed = false; stopped = false; pendingTitle = -1;
+        paused = false; endedHandled = false; loopTitle = -1;
+        keepTitle = looping;
     }
     static unsigned format(void **opaque, char *chroma, unsigned *w, unsigned *h, unsigned *pitches, unsigned *lines) {
         if (!*w || !*h || *w > 4096 || *h > 4096) return 0;
@@ -195,8 +199,36 @@ public:
             api.libvlc_media_player_stop(player);
             return;
         }
+        // A DVD can either end or navigate to another title/menu at its end.
+        // Keep the explicitly selected title, without treating pause/stop as an end.
+        const int currentTitle = api.libvlc_media_player_get_title(player);
+        if (keepTitle && !looping && !paused && !stopped && pendingTitle < 0
+            && loopTitle >= 0 && status == 3 && currentTitle != loopTitle) {
+            // After loop is disabled, finish this title rather than following
+            // the disc's navigation into another title/menu.
+            state.title = state.titleIds.indexOf(loopTitle);
+            stop();
+            return;
+        }
+        if (looping && !paused && !stopped && pendingTitle < 0 && loopTitle >= 0
+            && ((status == 6 && !endedHandled) || (status == 3 && currentTitle != loopTitle))) {
+            if (status == 6) {
+                api.libvlc_media_player_stop(player);
+                pendingTitle = loopTitle;
+                api.libvlc_media_player_play(player);
+                setVolume(desiredVolume, desiredMute);
+                endedHandled = true;
+            } else {
+                api.libvlc_media_player_set_title(player, loopTitle);
+                api.libvlc_media_player_set_time(player, 0);
+            }
+            return;
+        }
+        if (status == 6) endedHandled = true;
+        else if (status == 3) endedHandled = false;
         if (pendingTitle >= 0 && (status == 3 || status == 4)) {
             if (pendingTitle != api.libvlc_media_player_get_title(player)) api.libvlc_media_player_set_title(player, pendingTitle);
+            api.libvlc_media_player_set_time(player, 0);
             pendingTitle = -1;
         }
         if (!titlesRead && (status == 3 || status == 4)) {
@@ -213,6 +245,7 @@ public:
                 }
                 api.libvlc_title_descriptions_release(titles, unsigned(count));
                 titlesRead = true;
+                loopTitle = longest;
                 if (longest >= 0 && longest != api.libvlc_media_player_get_title(player)) api.libvlc_media_player_set_title(player, longest);
                 setVolume(desiredVolume, desiredMute);
             }
@@ -228,7 +261,7 @@ public:
         const qint64 length = api.libvlc_media_player_get_length(player);
         if (length > 0) state.duration = length;
         state.seekable = !stopped && api.libvlc_media_player_is_seekable(player) && state.duration > 0;
-        if (!stopped) state.title = state.titleIds.indexOf(api.libvlc_media_player_get_title(player));
+        if (!stopped && status != 6) state.title = state.titleIds.indexOf(api.libvlc_media_player_get_title(player));
         QImage frame;
         { QMutexLocker guard(&mutex); if (dirty) { frame = latest; dirty = false; state.video = true; } }
         emit updated(serial, state);
@@ -252,11 +285,11 @@ public:
             emit image(serial, frame);
         }
     }
-    void play() { if (player) { if (stopped && state.title >= 0) pendingTitle = state.titleIds.value(state.title, -1); stopped = false; api.libvlc_media_player_play(player); setVolume(desiredVolume, desiredMute); } }
-    void pause() { if (player) api.libvlc_media_player_set_pause(player, 1); }
+    void play() { if (player) { if ((stopped || endedHandled) && state.title >= 0) pendingTitle = state.titleIds.value(state.title, -1); stopped = false; paused = false; api.libvlc_media_player_play(player); setVolume(desiredVolume, desiredMute); } }
+    void pause() { paused = true; if (player) api.libvlc_media_player_set_pause(player, 1); }
     void stop() { if (player) { api.libvlc_media_player_stop(player); stopped = true; poll(); } }
     void seek(qint64 time) { if (player && state.seekable) api.libvlc_media_player_set_time(player, std::clamp(time, qint64(0), state.duration)); }
-    void title(int index) { if (player && index >= 0 && index < state.titleIds.size()) { if (stopped) pendingTitle = state.titleIds[index]; else api.libvlc_media_player_set_title(player, state.titleIds[index]); stopped = false; api.libvlc_media_player_play(player); } }
+    void title(int index) { if (player && index >= 0 && index < state.titleIds.size()) { loopTitle = state.titleIds[index]; if (stopped || endedHandled) pendingTitle = loopTitle; else api.libvlc_media_player_set_title(player, loopTitle); stopped = false; paused = false; api.libvlc_media_player_play(player); } }
 signals:
     void updated(quint64 serial, DvdState state);
     void image(quint64 serial, QImage image);
@@ -286,4 +319,12 @@ COMMAND(stop, stop())
 void DvdPlayer::seek(qint64 time) { QMetaObject::invokeMethod(m_worker, [this, time] { m_worker->seek(time); }); }
 void DvdPlayer::volume(int value, bool muted) { QMetaObject::invokeMethod(m_worker, [this, value, muted] { m_worker->setVolume(value, muted); }); }
 void DvdPlayer::selectTitle(int index) { QMetaObject::invokeMethod(m_worker, [this, index] { m_worker->title(index); }); }
+void DvdPlayer::setLooping(bool enabled) {
+    QMetaObject::invokeMethod(m_worker, [this, enabled] {
+        if (enabled && !m_worker->looping && m_worker->state.title >= 0)
+            m_worker->loopTitle = m_worker->pendingTitle >= 0 ? m_worker->pendingTitle : m_worker->state.titleIds.value(m_worker->state.title, -1);
+        m_worker->looping = enabled;
+        if (enabled) m_worker->keepTitle = true;
+    });
+}
 #include "DvdPlayer.moc"

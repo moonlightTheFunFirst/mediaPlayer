@@ -42,4 +42,5 @@ private:
     QPushButton *m_backward;
     QPushButton *m_forward;
     QPushButton *m_mute;
+    QPushButton *m_loop;
 };

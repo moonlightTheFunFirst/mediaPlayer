@@ -28,6 +28,7 @@ public:
     void seek(qint64 time);
     void volume(int value, bool muted);
     void selectTitle(int index);
+    void setLooping(bool enabled);
     const DvdState &state() const { return m_state; }
 signals:
     void changed();

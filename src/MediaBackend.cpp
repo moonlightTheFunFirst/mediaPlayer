@@ -5,6 +5,7 @@
 #include <QAudioOutput>
 #include <QAudioBufferOutput>
 #include <QMediaMetaData>
+#include <QTimer>
 #include <QFileInfo>
 #include <QDebug>
 #include <algorithm>
@@ -47,6 +48,9 @@ void MediaBackend::open(const QString &path)
         return;
     }
     m_player = new QMediaPlayer(this);
+    // Keep Qt at one pass: its infinite mode can prebuffer future repetitions
+    // that survive setLoops(Once). Decide whether to repeat at the actual end.
+    m_player->setLoops(QMediaPlayer::Once);
     m_player->setAudioOutput(m_audio);
     m_player->setVideoSink(m_sink);
     auto *buffers = new QAudioBufferOutput(m_player);
@@ -64,17 +68,30 @@ void MediaBackend::open(const QString &path)
     connect(m_player, &QMediaPlayer::tracksChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::mediaStatusChanged, this, &MediaBackend::changed);
+    connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if (status != QMediaPlayer::EndOfMedia || !m_looping || !m_playRequested) return;
+        auto *source = m_player;
+        QTimer::singleShot(0, source, [this, source] {
+            if (m_player != source || !m_looping || !m_playRequested
+                || source->mediaStatus() != QMediaPlayer::EndOfMedia) return;
+            m_levels.reset();
+            source->setPosition(0);
+            source->play();
+        });
+    });
     connect(m_player, &QMediaPlayer::errorOccurred, this, [this](auto, const QString &detail) {
         qWarning().noquote() << m_path << detail;
         emit changed();
         emit failure(m_path, tr("再生できません。ファイルの破損、未対応の形式・コーデックなどが考えられます。\n%1").arg(detail));
     });
     m_player->setSource(QUrl::fromLocalFile(m_path));
+    m_playRequested = true;
     m_player->play();
     emit changed();
 }
 void MediaBackend::close()
 {
+    m_playRequested = false;
     // Retire the source before clearing the last frame and notifying the UI.
     m_isDvd = false;
     m_dvd->close();
@@ -93,15 +110,17 @@ void MediaBackend::togglePlayback()
 {
     if (!available()) return;
     if (m_isDvd) { playing() ? m_dvd->pause() : m_dvd->play(); return; }
-    if (playing()) m_player->pause();
+    if (playing()) pause();
     else {
+        m_playRequested = true;
         if (m_player->mediaStatus() == QMediaPlayer::EndOfMedia) m_player->setPosition(0);
         m_player->play();
     }
 }
-void MediaBackend::pause() { if (m_isDvd) m_dvd->pause(); else if (available()) m_player->pause(); }
+void MediaBackend::pause() { m_playRequested = false; if (m_isDvd) m_dvd->pause(); else if (available()) m_player->pause(); }
 void MediaBackend::stop()
 {
+    m_playRequested = false;
     if (m_isDvd) { m_dvd->stop(); return; }
     if (m_player) { m_player->stop(); m_player->setPosition(0); }
     emit changed();
@@ -113,6 +132,12 @@ void MediaBackend::seek(qint64 milliseconds)
     if (seekable()) m_player->setPosition(std::clamp(milliseconds, qint64(0), duration()));
 }
 void MediaBackend::setVolume(int percent) { m_audio->setVolume(std::clamp(percent, 0, 100) / 100.0f); if (m_isDvd) m_dvd->volume(volume(), muted()); emit changed(); }
+void MediaBackend::setLooping(bool enabled)
+{
+    m_looping = enabled;
+    m_dvd->setLooping(enabled);
+    emit changed();
+}
 void MediaBackend::setMuted(bool muted) { m_audio->setMuted(muted); if (m_isDvd) m_dvd->volume(volume(), muted); emit changed(); }
 int MediaBackend::volume() const { return qRound(m_audio->volume() * 100); }
 bool MediaBackend::muted() const { return m_audio->isMuted(); }

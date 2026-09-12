@@ -31,6 +31,118 @@ class PlaybackTests : public QObject
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void disableLoopWithoutSeek_data()
+    {
+        QTest::addColumn<QString>("relative");
+        QTest::newRow("MP4") << "qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4";
+        QTest::newRow("WAV") << "qmediaplayerbackend/testdata/test.wav";
+    }
+    void disableLoopWithoutSeek()
+    {
+        QFETCH(QString, relative);
+        int wraps = 0;
+        qint64 previous = 0;
+        MainWindow window; window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *button = window.findChild<QPushButton *>("loopButton");
+        QTest::mouseClick(button, Qt::LeftButton);
+        window.openFile(QDir(root).filePath(relative));
+        backend->setMuted(true);
+        QTRY_VERIFY(backend->playing() && backend->duration() > 0);
+        connect(backend->player(), &QMediaPlayer::positionChanged, &window, [&](qint64 position) {
+            if (previous - position > backend->duration() / 2) ++wraps;
+            previous = position;
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(wraps >= 2, 12000);
+        QTest::mouseClick(button, Qt::LeftButton);
+        QVERIFY(!backend->looping());
+        const int count = wraps;
+        // Do not seek: that would flush Qt's prebuffered future loop iterations.
+        QTest::qWait(int(backend->duration()) + 700);
+        QCOMPARE(wraps, count);
+        QVERIFY(!backend->playing());
+        QCOMPARE(backend->player()->mediaStatus(), QMediaPlayer::EndOfMedia);
+    }
+    void loopPlayback_data()
+    {
+        QTest::addColumn<QString>("relative");
+        QTest::newRow("MP4") << "qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4";
+        QTest::newRow("WAV") << "qmediaplayerbackend/testdata/test.wav";
+        QTest::newRow("AVI") << "qmediaplayerformatsupport/testdata/containers/supported/container.avi";
+        if (!qEnvironmentVariableIsEmpty("WMV9_SAMPLE")) QTest::newRow("WMV9") << qEnvironmentVariable("WMV9_SAMPLE");
+    }
+    void loopPlayback()
+    {
+        QFETCH(QString, relative);
+        MainWindow window; window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *button = window.findChild<QPushButton *>("loopButton");
+        QVERIFY(button && !button->isChecked());
+        const auto off = button->icon().pixmap(22, 22).toImage();
+        QTest::mouseClick(button, Qt::LeftButton);
+        QVERIFY(backend->looping() && button->isChecked());
+        QVERIFY(button->icon().pixmap(22, 22).toImage() != off);
+        window.openFile(QDir(root).filePath(relative));
+        backend->setMuted(true);
+        QTRY_VERIFY_WITH_TIMEOUT(backend->seekable() && backend->playing(), 10000);
+        const auto duration = backend->duration();
+        QVERIFY(duration >= 900);
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            backend->seek(duration - 300);
+            QTRY_VERIFY(backend->position() >= duration - 350);
+            QTRY_VERIFY_WITH_TIMEOUT(backend->position() < duration / 2 && backend->playing(), 8000);
+        }
+        backend->pause(); QTRY_VERIFY(!backend->playing());
+        QTest::qWait(800); QVERIFY(!backend->playing());
+        backend->togglePlayback(); QTRY_VERIFY(backend->playing());
+        QTest::mouseClick(button, Qt::LeftButton);
+        QVERIFY(!backend->looping() && !button->isChecked());
+        backend->seek(duration - 600);
+        QTRY_COMPARE_WITH_TIMEOUT(backend->player()->mediaStatus(), QMediaPlayer::EndOfMedia, 8000);
+        QVERIFY(!backend->playing());
+        QTest::mouseClick(button, Qt::LeftButton);
+        QTest::qWait(200); QVERIFY(!backend->playing());
+        backend->togglePlayback(); QTRY_VERIFY(backend->playing());
+        backend->stop(); QTest::qWait(800); QVERIFY(!backend->playing());
+        backend->close(); QTest::qWait(200);
+        QVERIFY(backend->looping()); QVERIFY(backend->filePath().isEmpty());
+        window.openFile(QDir(root).filePath(relative));
+        QTRY_VERIFY(backend->playing());
+        QVERIFY(backend->looping());
+    }
+    void dvdLoop()
+    {
+        const auto iso = qEnvironmentVariable("DVD_ISO_SAMPLE");
+        if (iso.isEmpty()) QSKIP("Set DVD_ISO_SAMPLE");
+        MediaBackend backend;
+        backend.setMuted(true); backend.setLooping(true); backend.open(iso);
+        QTRY_VERIFY_WITH_TIMEOUT(backend.seekable() && !backend.dvdTitles().isEmpty(), 30000);
+        const int selected = backend.dvdTitles().size() > 1 ? 1 : 0;
+        backend.selectDvdTitle(selected);
+        QTRY_COMPARE(backend.dvdTitle(), selected);
+        QTest::qWait(500);
+        const auto duration = backend.duration();
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            backend.seek(duration - 2000);
+            QTRY_VERIFY_WITH_TIMEOUT(backend.position() >= duration - 4000, 10000);
+            QTRY_VERIFY_WITH_TIMEOUT(backend.position() < 5000 && backend.playing(), 15000);
+            QCOMPARE(backend.dvdTitle(), selected);
+        }
+        backend.pause(); QTRY_VERIFY(!backend.playing());
+        QTest::qWait(500); QVERIFY(!backend.playing());
+        backend.togglePlayback(); QTRY_VERIFY(backend.playing());
+        backend.setLooping(false);
+        backend.seek(duration - 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(backend.position() >= duration - 4000, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend.playing(), 15000);
+        backend.setLooping(true);
+        QTest::qWait(300); QVERIFY(!backend.playing());
+        backend.togglePlayback(); QTRY_VERIFY(backend.playing());
+        backend.stop(); QTRY_VERIFY(!backend.playing());
+        QTest::qWait(500); QVERIFY(!backend.playing());
+        backend.close(); QTest::qWait(300);
+        QVERIFY(backend.filePath().isEmpty()); QVERIFY(!backend.playing());
+    }
     void audioAnalysis()
     {
         QAudioFormat format;
