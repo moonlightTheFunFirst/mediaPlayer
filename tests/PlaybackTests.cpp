@@ -31,6 +31,40 @@ class PlaybackTests : public QObject
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void visualizerColors()
+    {
+        AudioVisualizer visual;
+        visual.resize(400, 400); visual.show();
+        // A point inside the note's left stem, without audio-driven scaling.
+        auto color = [&] { return visual.grab().toImage().pixelColor(180, 200); };
+        const QColor orange = color();
+        QVERIFY(orange.red() > 250 && orange.green() > 150 && orange.green() < 180);
+        visual.setRunning(true);
+        QColor previous = color();
+        bool changed = false;
+        for (int i = 0; i < 52; ++i) {
+            QTest::qWait(250);
+            const auto current = color();
+            changed |= current != orange;
+            // Cover at least one random target boundary; no sudden color jump.
+            QVERIFY(qAbs(current.red() - previous.red()) < 40);
+            QVERIFY(qAbs(current.green() - previous.green()) < 40);
+            QVERIFY(qAbs(current.blue() - previous.blue()) < 40);
+            previous = current;
+            if (i == 20 && qEnvironmentVariableIsSet("ORANGE_COLOR_PREVIEW"))
+                visual.grab().save(qEnvironmentVariable("ORANGE_COLOR_PREVIEW"));
+        }
+        QVERIFY(changed);
+        visual.setRunning(false);
+        const auto paused = color();
+        QTest::qWait(1000);
+        QCOMPARE(color(), paused);
+        visual.setRunning(true);
+        QTest::qWait(1800);
+        QVERIFY(color() != paused);
+        visual.reset();
+        QCOMPARE(color(), orange);
+    }
     void disableLoopWithoutSeek_data()
     {
         QTest::addColumn<QString>("relative");
