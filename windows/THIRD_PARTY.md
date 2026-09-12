@@ -14,7 +14,7 @@ Qt側の帰属情報はFFmpeg n7.1を記載しており、実行時のQtログ�
 # DVD ISO playback: libVLC
 
 DVD-Video ISO再生にVideoLANのlibVLC 3.xを動的に使用する。検証バージョンはWindows x64の3.0.23。
-配布バッチは指定VLCフォルダから `libvlc.dll`、`libvlccore.dll`、`plugins/`、`COPYING.txt` を `output/vlc/` へコピーする。
+配布バッチは指定VLCフォルダから `libvlc.dll`、`libvlccore.dll`、再生用に選別した `plugins/` のカテゴリ、`COPYING.txt` を `output/vlc/` へコピーする。カテゴリ一覧は `windows/scripts/rebuild.ps1` の `$vlcPluginTypes` で管理する。
 libVLC APIはLGPL、VLCの各プラグイン・依存物にはGPL等の条件がある。DLLの動的読み込みだけで全同梱物がLGPLになるわけではない。
 外部配布時には同梱バージョンに対応するライセンス・著作権表示・対応ソース提供等の条件を確認する。現時点ではローカル開発・動作確認用の配布フォルダを生成する。
 
