@@ -24,6 +24,31 @@
 #include <QPainter>
 
 namespace {
+QIcon loopIcon(QWidget *widget, bool enabled)
+{
+    const qreal scale = widget->devicePixelRatioF();
+    QPixmap pixmap(qRound(22 * scale), qRound(22 * scale));
+    pixmap.setDevicePixelRatio(scale);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(enabled ? QColor(255, 166, 63) : QColor(155, 155, 155), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawLine(QPointF(4, 7), QPointF(18, 7));
+    painter.drawLine(QPointF(18, 7), QPointF(15, 4));
+    painter.drawLine(QPointF(18, 7), QPointF(15, 10));
+    painter.drawLine(QPointF(18, 15), QPointF(4, 15));
+    painter.drawLine(QPointF(4, 15), QPointF(7, 12));
+    painter.drawLine(QPointF(4, 15), QPointF(7, 18));
+    painter.drawLine(QPointF(4, 7), QPointF(4, 10));
+    painter.drawLine(QPointF(18, 12), QPointF(18, 15));
+    if (enabled) {
+        painter.setPen(QPen(QColor(255, 166, 63), 1.4, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(QPointF(10, 10), QPointF(11, 9));
+        painter.drawLine(QPointF(11, 9), QPointF(11, 13));
+    }
+    painter.end();
+    return QIcon(pixmap);
+}
 QIcon fullscreenIcon(QWidget *widget)
 {
     const qreal scale = widget->devicePixelRatioF();
@@ -161,6 +186,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     m_forward = iconButton(mediaIcon(this, QStyle::SP_MediaSeekForward), "seekForwardButton", tr("10秒進む (→)"));
     m_mute = iconButton(mediaIcon(this, QStyle::SP_MediaVolume), "muteButton", tr("ミュート (M)"));
     m_mute->setCheckable(true);
+    m_loop = iconButton(loopIcon(this, false), "loopButton", tr("ループ再生：OFF"));
+    m_loop->setCheckable(true);
     auto *volume = new QSlider(Qt::Horizontal);
     volume->setObjectName("volumeSlider");
     volume->installEventFilter(this);
@@ -177,6 +204,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         controls->addWidget(button);
     }
     controls->addStretch();
+    controls->addWidget(m_loop);
     controls->addWidget(m_mute);
     controls->addWidget(volume);
     controls->addWidget(volumeText);
@@ -225,6 +253,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     connect(m_backward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() - 10000); });
     connect(m_forward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() + 10000); });
     connect(m_mute, &QPushButton::clicked, m_backend, &MediaBackend::setMuted);
+    connect(m_loop, &QPushButton::clicked, m_backend, &MediaBackend::setLooping);
     connect(volume, &QSlider::valueChanged, this, [this, volumeText](int value) {
         m_backend->setVolume(value); volumeText->setText(tr("%1%").arg(value));
     });
@@ -269,6 +298,10 @@ void MainWindow::refresh()
     m_dvdMenu->menuAction()->setVisible(m_backend->isDvd());
     m_dvdMenu->setEnabled(!m_backend->dvdTitles().isEmpty());
     m_mute->setChecked(m_backend->muted());
+    m_loop->setChecked(m_backend->looping());
+    m_loop->setIcon(loopIcon(this, m_backend->looping()));
+    m_loop->setToolTip(m_backend->looping() ? tr("ループ再生：ON（現在のファイル／DVDタイトルを繰り返す）") : tr("ループ再生：OFF"));
+    m_loop->setAccessibleName(m_loop->toolTip());
     m_mute->setIcon(mediaIcon(this, m_backend->muted() ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
     m_mute->setToolTip(m_backend->muted() ? tr("ミュート解除 (M)") : tr("ミュート (M)"));
     m_mute->setAccessibleName(m_mute->toolTip());

@@ -22,6 +22,8 @@ public:
     void seek(qint64 milliseconds);
     void setVolume(int percent);
     void setMuted(bool muted);
+    void setLooping(bool enabled);
+    bool looping() const { return m_looping; }
     qint64 position() const;
     qint64 duration() const;
     bool seekable() const;
@@ -45,6 +47,8 @@ signals:
 private:
     DvdPlayer *m_dvd;
     bool m_isDvd = false;
+    bool m_looping = false;
+    bool m_playRequested = false;
     QMediaPlayer *m_player = nullptr;
     QAudioOutput *m_audio;
     QVideoSink *m_sink = nullptr;
