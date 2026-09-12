@@ -28,12 +28,86 @@
 #include <QContextMenuEvent>
 #include "../src/AudioVisualizer.h"
 #include "../src/FrameStepper.h"
+#include "../src/VideoEnhancer.h"
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void sharpening()
+    {
+        QImage source(16, 16, QImage::Format_ARGB32); source.fill(qRgba(100, 100, 100, 200));
+        QCOMPARE(VideoEnhancer::sharpen(source), source);
+        source.setPixel(8, 8, qRgba(180, 180, 180, 200));
+        const auto filtered = VideoEnhancer::sharpen(source);
+        QCOMPARE(qRed(filtered.pixel(8, 8)), 204);
+        QVERIFY(qRed(filtered.pixel(7, 8)) < 100);
+        QCOMPARE(qAlpha(filtered.pixel(8, 8)), 200);
+        QCOMPARE(source.pixel(8, 8), qRgba(180, 180, 180, 200));
+        QCOMPARE(filtered.pixel(0, 0), source.pixel(0, 0));
+        QVERIFY(VideoEnhancer::sharpen(source, [] { return true; }).isNull());
+        VideoEnhancer enhancer; QSignalSpy frames(&enhancer, &VideoEnhancer::ready);
+        QVideoFrame frame(source); frame.setStartTime(40000); frame.setEndTime(80000);
+        frame.setRotation(QtVideo::Rotation::Clockwise90); frame.setMirrored(true);
+        enhancer.submit(frame); enhancer.cancel();
+        QTest::qWait(100); QCOMPARE(frames.size(), 0);
+        enhancer.submit(frame);
+        QTRY_COMPARE(frames.size(), 1);
+        const auto result = qvariant_cast<QVideoFrame>(frames[0][1]);
+        QCOMPARE(result.startTime(), qint64(40000)); QCOMPARE(result.endTime(), qint64(80000));
+        QCOMPARE(result.rotation(), frame.rotation()); QCOMPARE(result.mirrored(), true);
+    }
+    void videoEnhancement_data() { frameFormats_data(); QTest::newRow("MP4") << QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"); }
+    void videoEnhancement()
+    {
+        QFETCH(QString, path);
+        MainWindow window; window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *action = window.findChild<QAction *>("videoEnhancementAction");
+        auto *sink = window.findChild<QVideoWidget *>()->videoSink();
+        QVERIFY(action && !action->isChecked());
+        window.openFile(path); backend->setMuted(true);
+        QTRY_VERIFY(backend->canStepFrame() && sink->videoFrame().isValid());
+        backend->pause(); QTest::qWait(100);
+        const auto original = sink->videoFrame().toImage().convertToFormat(QImage::Format_ARGB32);
+        const auto position = backend->position();
+        for (int i = 0; i < 2; ++i) {
+            action->trigger(); QVERIFY(backend->videoEnhancement());
+            QTRY_COMPARE(sink->videoFrame().toImage().convertToFormat(QImage::Format_ARGB32), VideoEnhancer::sharpen(original));
+            if (i == 0) {
+                const auto shown = sink->videoFrame().toImage().convertToFormat(QImage::Format_ARGB32);
+                qint64 changedPixels = 0, totalDifference = 0; int maximum = 0;
+                for (int y = 0; y < shown.height(); ++y) {
+                    for (int x = 0; x < shown.width(); ++x) {
+                        const auto a = original.pixel(x, y), b = shown.pixel(x, y);
+                        const int difference = qMax(qAbs(qRed(a) - qRed(b)), qMax(qAbs(qGreen(a) - qGreen(b)), qAbs(qBlue(a) - qBlue(b))));
+                        changedPixels += difference != 0; totalDifference += difference;
+                        maximum = qMax(maximum, difference);
+                    }
+                }
+                qInfo() << "Displayed enhancement: changed pixels" << changedPixels
+                        << "of" << shown.width() * shown.height() << "max channel delta" << maximum
+                        << "mean changed-pixel delta" << (changedPixels ? double(totalDifference) / changedPixels : 0);
+                if (path.endsWith("nokia_n90.wmv")) QVERIFY(changedPixels > 100);
+            }
+            QCOMPARE(backend->position(), position); QVERIFY(!backend->playing());
+            action->trigger(); QVERIFY(!backend->videoEnhancement());
+            QTRY_COMPARE(sink->videoFrame().toImage().convertToFormat(QImage::Format_ARGB32), original);
+        }
+        action->trigger(); QTest::qWait(100);
+        const auto anchor = sink->videoFrame().startTime();
+        backend->stepFrame(1); QTRY_VERIFY_WITH_TIMEOUT(!backend->frameStepBusy(), 16000);
+        QVERIFY(sink->videoFrame().startTime() > anchor);
+        const auto enhanced = sink->videoFrame().toImage().convertToFormat(QImage::Format_ARGB32);
+        action->trigger();
+        QCOMPARE(VideoEnhancer::sharpen(sink->videoFrame().toImage()), enhanced);
+        action->trigger(); backend->seek(0); backend->togglePlayback();
+        QTRY_VERIFY(backend->playing() && backend->position() > 100);
+        backend->close(); QTest::qWait(200);
+        QVERIFY(!sink->videoFrame().isValid());
+        action->trigger(); QVERIFY(!sink->videoFrame().isValid());
+    }
     void customSkip()
     {
         MainWindow window; window.show(); window.activateWindow();

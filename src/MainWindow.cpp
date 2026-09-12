@@ -278,6 +278,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     });
     auto toggleFullscreen = [this] { isFullScreen() ? showNormal() : showFullScreen(); };
     auto *viewMenu = menuBar()->addMenu(tr("表示(&V)"));
+    auto *enhancement = viewMenu->addAction(tr("映像補正（シャープ化）"));
+    enhancement->setObjectName("videoEnhancementAction");
+    enhancement->setCheckable(true);
+    connect(enhancement, &QAction::toggled, m_backend, &MediaBackend::setVideoEnhancement);
+    connect(m_backend, &MediaBackend::changed, enhancement, [this, enhancement] {
+        const QSignalBlocker blocker(enhancement);
+        enhancement->setChecked(m_backend->videoEnhancement());
+        enhancement->setEnabled(!m_backend->isDvd());
+    });
     viewMenu->addAction(tr("全画面"), QKeySequence(Qt::Key_F11), this, toggleFullscreen);
     viewMenu->addAction(tr("全画面解除"), QKeySequence(Qt::Key_Escape), this, [this] { if (isFullScreen()) showNormal(); });
     connect(fullscreen, &QPushButton::clicked, this, toggleFullscreen);
