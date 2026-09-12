@@ -6,6 +6,7 @@ class QSlider;
 class QLabel;
 class QPushButton;
 class SeekPreview;
+class QMenu;
 
 class MainWindow : public QMainWindow
 {
@@ -22,6 +23,7 @@ private:
     bool handleFileDrop(QEvent *event);
     void chooseFile();
     void refresh();
+    QMenu *m_dvdMenu;
     MediaBackend *m_backend;
     QSlider *m_seek;
     SeekPreview *m_preview;

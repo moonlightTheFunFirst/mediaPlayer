@@ -7,6 +7,11 @@ try {
     $qtRoot = if ($env:QT_MSVC_DIR) { $env:QT_MSVC_DIR } else { 'F:\Qt\6.8.3\msvc2022_64' }
     $qtBin = Join-Path $qtRoot 'bin'
     $deployTool = Join-Path $qtBin 'windeployqt.exe'
+    $vlcRoot = if ($env:ORANGE_VLC_DIR) { $env:ORANGE_VLC_DIR } else { Join-Path $env:ProgramFiles 'VideoLAN/VLC' }
+    foreach ($relative in @('libvlc.dll', 'libvlccore.dll', 'plugins/access/libdvdnav_plugin.dll', 'COPYING.txt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $vlcRoot $relative))) { throw "DVD runtime missing: $vlcRoot/$relative. Set ORANGE_VLC_DIR to VLC 3.x x64." }
+    }
+    if ((Get-Item -LiteralPath (Join-Path $vlcRoot 'libvlc.dll')).VersionInfo.FileMajorPart -ne 3) { throw 'DVD playback requires VLC 3.x x64.' }
     if (-not (Test-Path -LiteralPath $deployTool)) { throw "Qt MSVC kit not found: $qtRoot. Set QT_MSVC_DIR." }
     $cmake = (Get-Command cmake.exe -ErrorAction SilentlyContinue).Source
     if (-not $cmake) {
@@ -42,6 +47,12 @@ try {
     }
     & $deployTool --release --force --compiler-runtime --translations ja --include-plugins ffmpegmediaplugin --dir $deployDir (Join-Path $deployDir 'Orange.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Qt runtime deployment failed.' }
+    $vlcOutput = Join-Path $deployDir 'vlc'
+    New-Item -ItemType Directory -Force -Path $vlcOutput | Out-Null
+    foreach ($name in @('libvlc.dll', 'libvlccore.dll', 'COPYING.txt')) {
+        Copy-Item -LiteralPath (Join-Path $vlcRoot $name) -Destination $vlcOutput -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $vlcRoot 'plugins') -Destination $vlcOutput -Recurse -Force
     foreach ($relative in @('Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll', 'platforms/qwindows.dll', 'multimedia/ffmpegmediaplugin.dll', 'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll', 'swresample-5.dll', 'swscale-8.dll', 'vc_redist.x64.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $deployDir $relative))) { throw "Missing runtime: $relative" }
     }

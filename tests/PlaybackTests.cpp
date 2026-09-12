@@ -1,4 +1,5 @@
 #include "../src/MediaBackend.h"
+#include "../src/DvdPlayer.h"
 #include <QtTest>
 #include <QVideoSink>
 #include <QVideoFrame>
@@ -21,12 +22,103 @@
 #include "../src/ThumbnailProvider.h"
 #include <QLabel>
 #include <QFrame>
+#include <QMenu>
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void dvdIso()
+    {
+        const QString iso = qEnvironmentVariable("DVD_ISO_SAMPLE");
+        if (iso.isEmpty()) QSKIP("Set DVD_ISO_SAMPLE to an unencrypted DVD-Video ISO");
+        QVideoSink sink;
+        MediaBackend backend;
+        backend.setVideoSink(&sink);
+        QSignalSpy errors(&backend, &MediaBackend::failure);
+        backend.open(iso);
+        QVERIFY(backend.isDvd());
+        QTRY_VERIFY_WITH_TIMEOUT(backend.hasVideo() || !errors.isEmpty(), 30000);
+        if (!errors.isEmpty()) qWarning() << errors.first();
+        QVERIFY(errors.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(sink.videoFrame().isValid(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(backend.seekable(), 15000);
+        QVERIFY(backend.duration() > 30000);
+        qInfo() << "DVD duration/frame:" << backend.duration() << sink.videoFrame().size();
+        QTRY_VERIFY_WITH_TIMEOUT(!backend.dvdTitles().isEmpty(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(backend.findChild<DvdPlayer *>()->state().audioOutput, 15000);
+        qInfo() << "DVD settled frame/titles:" << sink.videoFrame().size() << backend.dvdTitles();
+        backend.pause();
+        QTRY_VERIFY(!backend.playing());
+        backend.seek(15000);
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(backend.position() - 15000) < 2500, 10000);
+        QVERIFY(!backend.playing());
+        backend.setVolume(37); backend.setMuted(true);
+        QCOMPARE(backend.volume(), 37); QVERIFY(backend.muted());
+        backend.setMuted(false); QCOMPARE(backend.volume(), 37);
+        if (backend.dvdTitles().size() > 1) {
+            const int next = backend.dvdTitle() == 0 ? 1 : 0;
+            backend.selectDvdTitle(next);
+            QTRY_COMPARE_WITH_TIMEOUT(backend.dvdTitle(), next, 10000);
+            QTRY_VERIFY_WITH_TIMEOUT(backend.playing(), 10000);
+        }
+        const int selectedTitle = backend.dvdTitle();
+        backend.stop();
+        QTRY_VERIFY(!backend.playing());
+        QTRY_COMPARE(backend.position(), qint64(0));
+        backend.togglePlayback();
+        QTRY_VERIFY_WITH_TIMEOUT(backend.playing(), 10000);
+        QTRY_COMPARE_WITH_TIMEOUT(backend.dvdTitle(), selectedTitle, 10000);
+        backend.open(QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"));
+        QVERIFY(!backend.isDvd());
+        QTRY_VERIFY_WITH_TIMEOUT(backend.hasVideo(), 15000);
+        QVERIFY(errors.isEmpty());
+        backend.setVideoSink(nullptr);
+    }
+    void dvdWindow()
+    {
+        const QString iso = qEnvironmentVariable("DVD_ISO_SAMPLE");
+        if (iso.isEmpty()) QSKIP("Set DVD_ISO_SAMPLE");
+        MainWindow window;
+        window.show(); window.activateWindow();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *video = window.findChild<QVideoWidget *>();
+        auto surfaces = video->findChildren<QWidget *>();
+        QWidget *surface = surfaces.isEmpty() ? video : surfaces.first();
+        QMimeData mime; mime.setUrls({QUrl::fromLocalFile(iso)});
+        QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(surface, &enter); QVERIFY(enter.isAccepted());
+        QDropEvent drop(QPointF(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(surface, &drop); QVERIFY(drop.isAccepted());
+        QTRY_VERIFY_WITH_TIMEOUT(backend->hasVideo() && backend->seekable(), 30000);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend->dvdTitles().isEmpty(), 10000);
+        auto *menu = window.findChild<QMenu *>("dvdTitlesMenu");
+        QVERIFY(menu && menu->isEnabled() && menu->menuAction()->isVisible());
+        QTest::keyClick(&window, Qt::Key_Space);
+        QTRY_VERIFY(!backend->playing());
+        const auto position = backend->position();
+        QTest::keyClick(&window, Qt::Key_Right);
+        QTRY_VERIFY_WITH_TIMEOUT(backend->position() >= position + 8000, 10000);
+        QTest::keyClick(&window, Qt::Key_F11); QTRY_VERIFY(window.isFullScreen());
+        QTest::keyClick(&window, Qt::Key_Escape); QTRY_VERIFY(!window.isFullScreen());
+        QVERIFY(window.windowTitle().endsWith(" — Orange"));
+    }
+    void invalidDvdIso()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QFile iso(dir.filePath("invalid.iso"));
+        QVERIFY(iso.open(QIODevice::WriteOnly)); iso.write("not a DVD"); iso.close();
+        MediaBackend backend;
+        QSignalSpy errors(&backend, &MediaBackend::failure);
+        backend.open(iso.fileName());
+        QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 30000);
+        QVERIFY(!backend.available());
+        // A second open must safely retry after a library or media failure.
+        backend.open(iso.fileName());
+        QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 2, 30000);
+    }
     void thumbnail_data()
     {
         QTest::addColumn<QString>("sample");
