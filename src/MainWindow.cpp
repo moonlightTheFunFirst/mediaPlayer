@@ -96,7 +96,8 @@ private:
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new MediaBackend(this))
 {
-    setWindowTitle(tr("Media Player"));
+    setWindowTitle(QStringLiteral("Orange"));
+    setWindowIcon(QIcon(QStringLiteral(":/orange/orange.ico")));
     resize(960, 640);
     setMinimumSize(560, 360);
     setAcceptDrops(true);
@@ -242,7 +243,7 @@ void MainWindow::refresh()
     }
     if (!m_backend->filePath().isEmpty()) {
         const QString name = QFileInfo(m_backend->filePath()).fileName();
-        setWindowTitle(name + tr(" — Media Player"));
+        setWindowTitle(name + QStringLiteral(" — Orange"));
     }
 }
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)

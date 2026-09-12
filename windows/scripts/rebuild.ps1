@@ -21,10 +21,10 @@ try {
         $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         if ($vsRoot) { $env:VCINSTALLDIR = (Join-Path $vsRoot 'VC') + '\' }
     }
-    $appExe = Join-Path $buildDir 'Release/mediaPlayer.exe'
+    $appExe = Join-Path $buildDir 'Release/Orange.exe'
     $outputDir = Join-Path $windowsRoot 'output'
-    foreach ($process in @(Get-Process mediaPlayer -ErrorAction SilentlyContinue)) {
-        if ($process.Path -eq $appExe -or ($Mode -eq 'Deploy' -and $process.Path -eq (Join-Path $outputDir 'mediaPlayer.exe'))) {
+    foreach ($process in @(Get-Process Orange,mediaPlayer -ErrorAction SilentlyContinue)) {
+        if ($process.Path -eq (Join-Path $buildDir 'Release/mediaPlayer.exe') -or ($Mode -eq 'Deploy' -and $process.Path -eq (Join-Path $outputDir 'mediaPlayer.exe')) -or $process.Path -eq $appExe -or ($Mode -eq 'Deploy' -and $process.Path -eq (Join-Path $outputDir 'Orange.exe'))) {
             throw 'This build/output is running. Close Media Player and retry.'
         }
     }
@@ -40,7 +40,7 @@ try {
         New-Item -ItemType Directory -Path $deployDir | Out-Null
         Copy-Item -LiteralPath $appExe -Destination $deployDir
     }
-    & $deployTool --release --force --compiler-runtime --translations ja --include-plugins ffmpegmediaplugin --dir $deployDir (Join-Path $deployDir 'mediaPlayer.exe')
+    & $deployTool --release --force --compiler-runtime --translations ja --include-plugins ffmpegmediaplugin --dir $deployDir (Join-Path $deployDir 'Orange.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Qt runtime deployment failed.' }
     foreach ($relative in @('Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll', 'platforms/qwindows.dll', 'multimedia/ffmpegmediaplugin.dll', 'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll', 'swresample-5.dll', 'swscale-8.dll', 'vc_redist.x64.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $deployDir $relative))) { throw "Missing runtime: $relative" }
@@ -56,7 +56,7 @@ try {
         $sha = [Security.Cryptography.SHA256]::Create()
         try {
             $originalHash = [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes($appExe)))
-            $copiedHash = [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes((Join-Path $deployDir 'mediaPlayer.exe'))))
+            $copiedHash = [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes((Join-Path $deployDir 'Orange.exe'))))
         } finally { $sha.Dispose() }
         if ($originalHash -ne $copiedHash) {
             throw 'Executable copy verification failed.'
@@ -77,7 +77,7 @@ try {
             if ($backupDir -and -not (Test-Path -LiteralPath $outputDir)) { Move-Item -LiteralPath $backupDir -Destination $outputDir }
             throw
         }
-        Write-Host "Deploy complete: $outputDir\mediaPlayer.exe"
+        Write-Host "Deploy complete: $outputDir\Orange.exe"
         if ($backupDir) { Write-Host "Previous output retained: $backupDir" }
     } else {
         # Use the deployed plugins, matching direct execution of the resulting exe.

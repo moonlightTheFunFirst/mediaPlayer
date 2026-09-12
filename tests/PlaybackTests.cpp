@@ -182,8 +182,12 @@ private slots:
     void widgetControls()
     {
         MainWindow window;
+        QCOMPARE(window.windowTitle(), QString("Orange"));
+        for (int size : {16, 32, 48, 256})
+            QVERIFY(!window.windowIcon().pixmap(size, size).isNull());
         window.show();
         window.openFile(QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"));
+        QTRY_COMPARE(window.windowTitle(), QString("3colors_with_sound_1s.mp4 — Orange"));
         auto *video = window.findChild<QVideoWidget *>();
         QVERIFY(video);
         QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 15000);

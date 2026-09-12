@@ -6,7 +6,7 @@ WMV・MP4・AVIの基本再生を実装しました。以下の仕様全体の�
 
 - ビルドして起動：`windows\rebuild_and_run.bat`
 - クリーンビルドして配布フォルダを生成：`windows\rebuild_and_deploy.bat`
-- 配布版の起動：`windows\output\mediaPlayer.exe`（フォルダ全体が必要）
+- 配布版の起動：`windows\output\Orange.exe`（フォルダ全体が必要）
 - 開発環境：Qt 6.8.3 MSVC x64、Visual Studio Build Tools 2022、CMake。
 - 実装済み：ファイル選択、単一ファイルのドラッグ＆ドロップ、コマンドラインから開く、再生／一時停止、停止、シーク、時間表示、音量・ミュート、アスペクト比維持、全画面切り替え、再生エラー表示。
 - 未実装：プレイリスト、履歴・途中再開、設定保存、全画面時の操作バー自動非表示、仕様にある全ショートカット。

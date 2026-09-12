@@ -1,5 +1,10 @@
 # Windows 開発環境
 
+アプリ名（仮称）は **Orange**。タイトルバー・タスクバー・実行ファイルに葉付きオレンジのアイコンを使用する。
+実行ファイル名は `Orange.exe`。
+ログはQtのAppLocalDataLocation（通常 `%LOCALAPPDATA%/Keishin/Orange/player.log`）に保存する。
+アイコンの原画像は `assets/orange.png`、Windows用の複数サイズICOは `windows/resources/orange.ico`。
+
 `F:\keishin\programs\splitFiler` の構成を参考に、Windows専用のスクリプト・環境確認・ビルド出力をこのディレクトリにまとめる。
 参照元の `win/` に相当する名前として、このプロジェクトでは `windows/` を使用する。
 共通のアプリケーションコードはルートの `src/`、共通ビルド定義はルートの `CMakeLists.txt` に置く。
@@ -14,7 +19,7 @@ windows\rebuild_and_run.bat
 ```
 
 CMakeでMSVC x64 Releaseを構成し、クリーンビルド、Qt DLL配置後にプレイヤーを起動する。
-生成先は `windows/build/msvc-release/Release/mediaPlayer.exe`。
+生成先は `windows/build/msvc-release/Release/Orange.exe`。
 起動中の対象プレイヤーがある場合はエラーで止まるので、閉じてから再実行する。
 
 ## 配布用フォルダの作成
@@ -26,7 +31,7 @@ windows\rebuild_and_deploy.bat
 クリーンビルド後、`windeployqt`でQt・Multimediaプラグイン・FFmpeg DLL・VC++再頒布用インストーラーを収集する。
 必要ファイルと実行ファイルのSHA-256を確認してから `windows/output/` を更新する。
 以前のoutputは `windows/build/output-backup-…/` に保持する。
-出力内の `mediaPlayer.exe` を実行する。別PCに移すときは **outputフォルダ全体** をコピーする。
+出力内の `Orange.exe` を実行する。別PCに移すときは **outputフォルダ全体** をコピーする。
 VC++ランタイムがないPCでは、同梱の `vc_redist.x64.exe` を実行する。
 バッチによるランタイムの自動インストールは行わない。
 
@@ -49,7 +54,7 @@ VC++ランタイムがないPCでは、同梱の `vc_redist.x64.exe` を実行�
 - サムネイルは通常再生とは別の無音デコーダーで取得する。1秒単位で最大100枚をメモリー内に保持し、ファイル切り替え時に破棄する。画像は最大200×112pxで縦横比を維持する。
 - 音声のみのファイルや画像取得に失敗した場合は時刻のみを表示する。取得は最大5秒で打ち切る。指定時刻付近の画像であり、フレーム単位の厳密な一致は保証しない。
 - 全画面は四隅の枠アイコンまたはF11で切り替え、Escで解除する。全画面中も操作バーを表示する。
-- 実行ファイルに動画パスを渡すことも可能：`mediaPlayer.exe "C:\動画\サンプル.mp4"`
+- 実行ファイルに動画パスを渡すことも可能：`Orange.exe "C:\動画\サンプル.mp4"`
 - Qtの診断ログは `QStandardPaths::AppLocalDataLocation` の `player.log` に記録する。
 
 対応表と未実装機能はルートの [README.md](../README.md) を参照。

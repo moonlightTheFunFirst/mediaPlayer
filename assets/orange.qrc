@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/orange">
+        <file alias="orange.ico">../windows/resources/orange.ico</file>
+    </qresource>
+</RCC>

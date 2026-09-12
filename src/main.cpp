@@ -23,7 +23,8 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName("Keishin");
-    QCoreApplication::setApplicationName("mediaPlayer");
+    QCoreApplication::setApplicationName("Orange");
+    QGuiApplication::setApplicationDisplayName("Orange");
     const QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir().mkpath(logDir);
     logPath = logDir + "/player.log";
