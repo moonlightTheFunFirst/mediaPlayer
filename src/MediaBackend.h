@@ -1,5 +1,6 @@
 #pragma once
 #include <QMediaPlayer>
+#include "AudioLevels.h"
 
 class DvdPlayer;
 class QAudioOutput;
@@ -26,6 +27,7 @@ public:
     bool seekable() const;
     bool playing() const;
     bool hasVideo() const;
+    bool audioOnly() const;
     bool available() const;
     bool muted() const;
     int volume() const;
@@ -38,6 +40,7 @@ public:
     QMediaPlayer *player() const { return m_player; } // Integration diagnostics.
 signals:
     void changed();
+    void audioLevels(float energy, float bass);
     void failure(const QString &path, const QString &message);
 private:
     DvdPlayer *m_dvd;
@@ -46,4 +49,5 @@ private:
     QAudioOutput *m_audio;
     QVideoSink *m_sink = nullptr;
     QString m_path;
+    AudioLevels m_levels;
 };

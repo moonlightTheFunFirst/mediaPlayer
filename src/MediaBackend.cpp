@@ -3,6 +3,8 @@
 #include <QVideoSink>
 #include <QVideoFrame>
 #include <QAudioOutput>
+#include <QAudioBufferOutput>
+#include <QMediaMetaData>
 #include <QFileInfo>
 #include <QDebug>
 #include <algorithm>
@@ -47,10 +49,19 @@ void MediaBackend::open(const QString &path)
     m_player = new QMediaPlayer(this);
     m_player->setAudioOutput(m_audio);
     m_player->setVideoSink(m_sink);
+    auto *buffers = new QAudioBufferOutput(m_player);
+    m_player->setAudioBufferOutput(buffers);
+    connect(buffers, &QAudioBufferOutput::audioBufferReceived, this, [this](const QAudioBuffer &buffer) {
+        if (!audioOnly() || !playing()) return;
+        const auto levels = m_levels.process(buffer);
+        emit audioLevels(levels.energy, levels.bass);
+    });
     connect(m_player, &QMediaPlayer::positionChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::durationChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::seekableChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::hasVideoChanged, this, &MediaBackend::changed);
+    connect(m_player, &QMediaPlayer::hasAudioChanged, this, &MediaBackend::changed);
+    connect(m_player, &QMediaPlayer::tracksChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::mediaStatusChanged, this, &MediaBackend::changed);
     connect(m_player, &QMediaPlayer::errorOccurred, this, [this](auto, const QString &detail) {
@@ -74,6 +85,7 @@ void MediaBackend::close()
         m_player = nullptr;
     }
     m_path.clear();
+    m_levels.reset();
     if (m_sink) m_sink->setVideoFrame(QVideoFrame());
     emit changed();
 }
@@ -96,6 +108,7 @@ void MediaBackend::stop()
 }
 void MediaBackend::seek(qint64 milliseconds)
 {
+    m_levels.reset();
     if (m_isDvd) { m_dvd->seek(milliseconds); return; }
     if (seekable()) m_player->setPosition(std::clamp(milliseconds, qint64(0), duration()));
 }
@@ -108,6 +121,7 @@ qint64 MediaBackend::duration() const { if (m_isDvd) return m_dvd->state().durat
 bool MediaBackend::seekable() const { if (m_isDvd) return m_dvd->state().seekable; return available() && m_player->isSeekable() && duration() > 0; }
 bool MediaBackend::playing() const { if (m_isDvd) return m_dvd->state().playing; return m_player && m_player->playbackState() == QMediaPlayer::PlayingState; }
 bool MediaBackend::hasVideo() const { if (m_isDvd) return m_dvd->state().video; return m_player && m_player->hasVideo(); }
+bool MediaBackend::audioOnly() const { return !m_isDvd && available() && m_player->hasAudio() && !m_player->hasVideo() && m_player->videoTracks().isEmpty() && m_player->mediaStatus() != QMediaPlayer::LoadingMedia; }
 bool MediaBackend::available() const { if (m_isDvd) return m_dvd->state().available; return m_player && m_player->error() == QMediaPlayer::NoError && m_player->mediaStatus() != QMediaPlayer::InvalidMedia; }
 QString MediaBackend::statusText() const
 {
