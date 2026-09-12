@@ -8,6 +8,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
 
 add_library(playback STATIC src/DvdPlayer.cpp src/DvdPlayer.h src/MediaBackend.cpp src/MediaBackend.h src/ThumbnailProvider.cpp src/ThumbnailProvider.h src/FrameStepper.cpp src/FrameStepper.h)
 target_include_directories(playback PRIVATE third_party/ffmpeg/include)
+target_sources(playback PRIVATE src/VideoEnhancer.cpp src/VideoEnhancer.h)
 target_link_libraries(playback PUBLIC Qt6::Multimedia)
 set(PLAYER_UI_SOURCES src/MainWindow.cpp src/MainWindow.h src/SeekPreview.cpp src/SeekPreview.h src/AudioVisualizer.cpp src/AudioVisualizer.h assets/orange.qrc)
 qt_add_executable(mediaPlayer WIN32 src/main.cpp ${PLAYER_UI_SOURCES})

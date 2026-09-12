@@ -1,6 +1,7 @@
 #include "MediaBackend.h"
 #include "DvdPlayer.h"
 #include "FrameStepper.h"
+#include "VideoEnhancer.h"
 #include <QVideoSink>
 #include <QVideoFrame>
 #include <QAudioOutput>
@@ -13,6 +14,17 @@
 
 MediaBackend::MediaBackend(QObject *parent) : QObject(parent), m_dvd(new DvdPlayer(this)), m_audio(new QAudioOutput(this))
 {
+    m_enhancer = new VideoEnhancer(this);
+    m_filterSink = new QVideoSink(this);
+    connect(m_filterSink, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame &frame) {
+        if (m_videoEnhancement && !m_isDvd && m_frameTimeUs < 0) presentFrame(frame);
+    });
+    connect(m_enhancer, &VideoEnhancer::ready, this, [this](const QVideoFrame &original, const QVideoFrame &filtered) {
+        if (!m_videoEnhancement || m_isDvd || !m_sink) return;
+        m_displayOriginal = original;
+        m_sink->setVideoFrame(filtered);
+        if (m_stepFilterPending) { m_stepFilterPending = false; m_frameBusy = false; emit changed(); }
+    });
     m_stepper = new FrameStepper(this);
     connect(m_stepper, &FrameStepper::ready, this, [this](const QImage &image, qint64 time, const QString &error) {
         m_frameBusy = false;
@@ -21,7 +33,8 @@ MediaBackend::MediaBackend(QObject *parent) : QObject(parent), m_dvd(new DvdPlay
         if (m_sink) {
             QVideoFrame frame(image);
             frame.setStartTime(time);
-            m_sink->setVideoFrame(frame);
+            if (m_videoEnhancement) { m_frameBusy = true; m_stepFilterPending = true; }
+            presentFrame(frame);
         }
         emit changed();
     });
@@ -43,7 +56,8 @@ MediaBackend::~MediaBackend()
 void MediaBackend::setVideoSink(QVideoSink *sink)
 {
     m_sink = sink;
-    if (m_player) m_player->setVideoSink(sink);
+    if (!sink) m_enhancer->cancel();
+    if (m_player) m_player->setVideoSink(playbackSink());
 }
 void MediaBackend::open(const QString &path)
 {
@@ -65,7 +79,7 @@ void MediaBackend::open(const QString &path)
     // that survive setLoops(Once). Decide whether to repeat at the actual end.
     m_player->setLoops(QMediaPlayer::Once);
     m_player->setAudioOutput(m_audio);
-    m_player->setVideoSink(m_sink);
+    m_player->setVideoSink(playbackSink());
     auto *buffers = new QAudioBufferOutput(m_player);
     m_player->setAudioBufferOutput(buffers);
     connect(buffers, &QAudioBufferOutput::audioBufferReceived, this, [this](const QAudioBuffer &buffer) {
@@ -104,6 +118,9 @@ void MediaBackend::open(const QString &path)
 }
 void MediaBackend::close()
 {
+    m_stepFilterPending = false;
+    m_enhancer->cancel();
+    m_originalFrame = {}; m_displayOriginal = {};
     m_secondMode = false;
     m_stepper->cancel();
     m_frameTimeUs = -1;
@@ -140,6 +157,7 @@ void MediaBackend::togglePlayback()
 void MediaBackend::pause() { m_playRequested = false; if (m_isDvd) m_dvd->pause(); else if (available()) m_player->pause(); }
 void MediaBackend::stop()
 {
+    m_enhancer->cancel();
     leaveFrameMode();
     m_playRequested = false;
     if (m_isDvd) { m_dvd->stop(); return; }
@@ -148,6 +166,7 @@ void MediaBackend::stop()
 }
 void MediaBackend::seek(qint64 milliseconds)
 {
+    m_enhancer->cancel();
     leaveFrameMode();
     m_levels.reset();
     if (m_isDvd) { m_dvd->seek(milliseconds); return; }
@@ -171,15 +190,19 @@ void MediaBackend::stepFrame(int direction)
     const auto shown = m_sink->videoFrame();
     const qint64 anchor = m_frameTimeUs >= 0 ? m_frameTimeUs : (shown.isValid() && shown.startTime() >= 0 ? shown.startTime() : position() * 1000);
     pause();
+    m_enhancer->cancel();
+    if (m_videoEnhancement && m_displayOriginal.isValid()) m_originalFrame = m_displayOriginal;
     m_frameTimeUs = anchor;
     m_player->setVideoSink(nullptr);
     if (shown.isValid()) m_sink->setVideoFrame(shown);
     m_frameBusy = true;
+    m_stepFilterPending = false;
     m_stepper->request(m_path, anchor, direction);
     emit changed();
 }
 void MediaBackend::leaveFrameMode()
 {
+    m_stepFilterPending = false;
     const bool wasSecondMode = m_secondMode;
     m_secondMode = false;
     m_stepper->cancel();
@@ -187,7 +210,8 @@ void MediaBackend::leaveFrameMode()
     if (m_frameTimeUs < 0) { if (wasSecondMode) emit changed(); return; }
     const auto time = m_frameTimeUs;
     m_frameTimeUs = -1;
-    if (m_player) { m_player->setVideoSink(m_sink); m_player->setPosition((time + 500) / 1000); }
+    m_enhancer->cancel();
+    if (m_player) { m_player->setVideoSink(playbackSink()); m_player->setPosition((time + 500) / 1000); }
     emit changed();
 }
 void MediaBackend::stepSecond(int direction)
@@ -195,6 +219,28 @@ void MediaBackend::stepSecond(int direction)
     if (!seekable() || direction == 0) return;
     seek(position() + (direction > 0 ? 1000 : -1000));
     m_secondMode = true;
+    emit changed();
+}
+QVideoSink *MediaBackend::playbackSink() const
+{
+    return m_sink && m_videoEnhancement && !m_isDvd ? m_filterSink : m_sink;
+}
+void MediaBackend::presentFrame(const QVideoFrame &frame)
+{
+    m_originalFrame = frame;
+    if (!m_sink) return;
+    if (m_videoEnhancement && !m_isDvd && frame.isValid()) m_enhancer->submit(frame);
+    else { m_enhancer->cancel(); m_displayOriginal = frame; m_sink->setVideoFrame(frame); }
+}
+void MediaBackend::setVideoEnhancement(bool enabled)
+{
+    if (m_videoEnhancement == enabled) return;
+    const auto original = m_videoEnhancement ? m_originalFrame : (m_sink ? m_sink->videoFrame() : QVideoFrame());
+    m_enhancer->cancel();
+    m_videoEnhancement = enabled;
+    if (!enabled && m_stepFilterPending) { m_stepFilterPending = false; m_frameBusy = false; }
+    if (m_player && m_frameTimeUs < 0) m_player->setVideoSink(playbackSink());
+    if (!m_isDvd && original.isValid()) presentFrame(original);
     emit changed();
 }
 qint64 MediaBackend::duration() const { if (m_isDvd) return m_dvd->state().duration; return m_player ? m_player->duration() : 0; }

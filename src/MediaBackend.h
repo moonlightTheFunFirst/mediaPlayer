@@ -1,11 +1,13 @@
 #pragma once
 #include <QMediaPlayer>
+#include <QVideoFrame>
 #include "AudioLevels.h"
 
 class DvdPlayer;
 class QAudioOutput;
 class QVideoSink;
 class FrameStepper;
+class VideoEnhancer;
 
 // All playback-library operations live here; the UI uses this small interface.
 class MediaBackend : public QObject
@@ -31,6 +33,8 @@ public:
     void setMuted(bool muted);
     void setLooping(bool enabled);
     bool looping() const { return m_looping; }
+    void setVideoEnhancement(bool enabled);
+    bool videoEnhancement() const { return m_videoEnhancement; }
     qint64 position() const;
     qint64 duration() const;
     bool seekable() const;
@@ -52,6 +56,13 @@ signals:
     void audioLevels(float energy, float bass);
     void failure(const QString &path, const QString &message);
 private:
+    void presentFrame(const QVideoFrame &frame);
+    QVideoSink *playbackSink() const;
+    VideoEnhancer *m_enhancer;
+    QVideoSink *m_filterSink;
+    bool m_videoEnhancement = false;
+    bool m_stepFilterPending = false;
+    QVideoFrame m_originalFrame, m_displayOriginal;
     void leaveFrameMode();
     FrameStepper *m_stepper;
     qint64 m_frameTimeUs = -1;
