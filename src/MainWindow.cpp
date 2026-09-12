@@ -316,6 +316,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         dialog->open();
     });
     refresh();
+    // Reserve initial focus for playback shortcuts; editing requires user focus.
+    setFocus(Qt::OtherFocusReason);
 }
 void MainWindow::chooseFile()
 {

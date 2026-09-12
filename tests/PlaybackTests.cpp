@@ -114,11 +114,15 @@ private slots:
         auto *backend = window.findChild<MediaBackend *>();
         auto *seconds = window.findChild<QDoubleSpinBox *>("skipSecondsSpinBox");
         auto *editor = seconds->findChild<QLineEdit *>();
+        QTRY_VERIFY(window.isActiveWindow());
+        QVERIFY(!seconds->hasFocus() && !editor->hasFocus());
         QCOMPARE(seconds->value(), 10.0);
         const auto path = QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
         window.openFile(path);
         QTRY_VERIFY(backend->seekable()); backend->pause(); backend->seek(0);
-        seconds->setFocus(); seconds->selectAll();
+        QTest::mouseClick(editor, Qt::LeftButton);
+        QTRY_VERIFY(seconds->hasFocus());
+        seconds->selectAll();
         QTest::keyClicks(editor, "1.5");
         QCOMPARE(seconds->value(), 10.0); // Commit only on Enter/focus loss.
         QTest::keyClick(editor, Qt::Key_Left);
