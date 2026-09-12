@@ -7,6 +7,7 @@ class QLabel;
 class QPushButton;
 class SeekPreview;
 class QMenu;
+class QAction;
 
 class MainWindow : public QMainWindow
 {
@@ -15,6 +16,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     void openFile(const QString &path);
 protected:
+    void contextMenuEvent(QContextMenuEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dragMoveEvent(QDragMoveEvent *event) override;
@@ -24,6 +26,8 @@ private:
     void chooseFile();
     void refresh();
     QMenu *m_dvdMenu;
+    QMenu *m_contextMenu;
+    QAction *m_closeAction;
     MediaBackend *m_backend;
     QSlider *m_seek;
     SeekPreview *m_preview;

@@ -14,6 +14,7 @@ public:
     ~MediaBackend() override;
     void setVideoSink(QVideoSink *sink);
     void open(const QString &path);
+    void close();
     void togglePlayback();
     void pause();
     void stop();

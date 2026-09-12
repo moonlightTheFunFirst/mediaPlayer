@@ -36,15 +36,7 @@ void MediaBackend::open(const QString &path)
         emit failure(path, tr("ファイルが存在しないか、読み取れません。"));
         return;
     }
-    // Retire the old source and its signal connections before loading another.
-    if (m_player) {
-        m_player->disconnect(this);
-        m_player->stop();
-        delete m_player;
-    }
-    m_player = nullptr;
-    m_dvd->close();
-    if (m_sink) m_sink->setVideoFrame(QVideoFrame());
+    close();
     m_path = file.absoluteFilePath();
     m_isDvd = file.suffix().compare("iso", Qt::CaseInsensitive) == 0;
     if (m_isDvd) {
@@ -68,6 +60,21 @@ void MediaBackend::open(const QString &path)
     });
     m_player->setSource(QUrl::fromLocalFile(m_path));
     m_player->play();
+    emit changed();
+}
+void MediaBackend::close()
+{
+    // Retire the source before clearing the last frame and notifying the UI.
+    m_isDvd = false;
+    m_dvd->close();
+    if (m_player) {
+        m_player->disconnect(this);
+        m_player->stop();
+        delete m_player;
+        m_player = nullptr;
+    }
+    m_path.clear();
+    if (m_sink) m_sink->setVideoFrame(QVideoFrame());
     emit changed();
 }
 void MediaBackend::togglePlayback()

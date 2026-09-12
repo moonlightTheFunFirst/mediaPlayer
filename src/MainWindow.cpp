@@ -6,6 +6,7 @@
 #include <QStyle>
 #include <QStyleOptionSlider>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
 #include <QLabel>
 #include <QPushButton>
 #include <QBoxLayout>
@@ -179,6 +180,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
                             "QMenuBar::item { padding: 2px 8px; margin: 0px; }");
     auto *fileMenu = menuBar()->addMenu(tr("ファイル(&F)"));
     fileMenu->addAction(tr("開く…"), QKeySequence::Open, this, &MainWindow::chooseFile);
+    m_closeAction = fileMenu->addAction(tr("閉じる"), m_backend, &MediaBackend::close);
+    m_closeAction->setObjectName("closeMediaAction");
+    m_contextMenu = new QMenu(this);
+    m_contextMenu->setObjectName("mediaContextMenu");
+    m_contextMenu->addAction(m_closeAction);
     fileMenu->addAction(tr("終了"), QKeySequence::Quit, this, &QWidget::close);
     auto *playMenu = menuBar()->addMenu(tr("再生(&P)"));
     auto *toggleAction = playMenu->addAction(tr("再生／一時停止"), QKeySequence(Qt::Key_Space), m_backend, &MediaBackend::togglePlayback);
@@ -238,6 +244,7 @@ void MainWindow::chooseFile()
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
 void MainWindow::refresh()
 {
+    m_closeAction->setEnabled(!m_backend->filePath().isEmpty());
     m_play->setEnabled(m_backend->available() && !m_backend->playing());
     m_pause->setEnabled(m_backend->available() && m_backend->playing());
     m_backward->setEnabled(m_backend->seekable());
@@ -258,7 +265,14 @@ void MainWindow::refresh()
     if (!m_backend->filePath().isEmpty()) {
         const QString name = QFileInfo(m_backend->filePath()).fileName();
         setWindowTitle(name + QStringLiteral(" — Orange"));
+    } else {
+        setWindowTitle(QStringLiteral("Orange"));
     }
+}
+void MainWindow::contextMenuEvent(QContextMenuEvent *event)
+{
+    m_contextMenu->popup(event->globalPos());
+    event->accept();
 }
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
@@ -274,6 +288,10 @@ void MainWindow::dropEvent(QDropEvent *event)
 }
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::ContextMenu) {
+        contextMenuEvent(static_cast<QContextMenuEvent *>(event));
+        return true;
+    }
     if (event->type() == QEvent::ShortcutOverride && qobject_cast<QSlider *>(watched)) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->modifiers() == Qt::NoModifier && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {

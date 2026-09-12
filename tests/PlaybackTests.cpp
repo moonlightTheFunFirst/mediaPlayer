@@ -23,12 +23,62 @@
 #include <QLabel>
 #include <QFrame>
 #include <QMenu>
+#include <QContextMenuEvent>
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void closeMedia_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::newRow("mp4") << QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
+        const auto iso = qEnvironmentVariable("DVD_ISO_SAMPLE");
+        if (!iso.isEmpty()) QTest::newRow("dvd") << iso;
+    }
+    void closeMedia()
+    {
+        QFETCH(QString, path);
+        MainWindow window;
+        window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *video = window.findChild<QVideoWidget *>();
+        auto *action = window.findChild<QAction *>("closeMediaAction");
+        auto *menu = window.findChild<QMenu *>("mediaContextMenu");
+        QVERIFY(action && menu);
+        QVERIFY(!action->isEnabled());
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            window.openFile(path);
+            QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 30000);
+            QVERIFY(action->isEnabled());
+            QVERIFY(window.windowTitle().contains(QFileInfo(path).fileName()));
+            if (attempt == 0) {
+                const auto surfaces = video->findChildren<QWidget *>();
+                QWidget *surface = surfaces.isEmpty() ? video : surfaces.first();
+                QContextMenuEvent context(QContextMenuEvent::Mouse, QPoint(10, 10), surface->mapToGlobal(QPoint(10, 10)));
+                QApplication::sendEvent(surface, &context);
+                QTRY_VERIFY(menu->isVisible());
+                QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(action).center());
+            } else {
+                // The File menu uses the same action.
+                action->trigger();
+            }
+            QVERIFY(backend->filePath().isEmpty());
+            QVERIFY(!backend->available());
+            QVERIFY(!backend->playing());
+            QVERIFY(!backend->isDvd());
+            QCOMPARE(backend->position(), qint64(0));
+            QCOMPARE(backend->duration(), qint64(0));
+            QCOMPARE(window.windowTitle(), QStringLiteral("Orange"));
+            QVERIFY(!action->isEnabled());
+            QVERIFY(!video->videoSink()->videoFrame().isValid());
+            QTest::qWait(250); // Queued DVD frames must not revive a closed source.
+            QVERIFY(!video->videoSink()->videoFrame().isValid());
+            backend->togglePlayback();
+            QVERIFY(!backend->playing());
+        }
+    }
     void dvdIso()
     {
         const QString iso = qEnvironmentVariable("DVD_ISO_SAMPLE");

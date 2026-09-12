@@ -2,6 +2,7 @@
 
 アプリ名（仮称）は **Orange**。タイトルバー・タスクバー・実行ファイルに葉付きオレンジのアイコンを使用する。
 実行ファイル名は `Orange.exe`。
+動画を閉じるには、ウィンドウ内の右クリックメニューまたは「ファイル」メニューの「閉じる」を選ぶ。再生と映像表示を解除し、タイトルバーを起動時の「Orange」に戻す。DVD ISOにも対応する。
 ログはQtのAppLocalDataLocation（通常 `%LOCALAPPDATA%/Keishin/Orange/player.log`）に保存する。
 アイコンの原画像は `assets/orange.png`、Windows用の複数サイズICOは `windows/resources/orange.ico`。
 
