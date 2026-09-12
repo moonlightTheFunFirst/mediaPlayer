@@ -10,6 +10,7 @@ class QMenu;
 class QAction;
 class AudioVisualizer;
 class QStackedWidget;
+class QDoubleSpinBox;
 
 class MainWindow : public QMainWindow
 {
@@ -27,6 +28,11 @@ private:
     bool handleFileDrop(QEvent *event);
     void chooseFile();
     void refresh();
+    void skip(int direction);
+    void refreshSkipLabels();
+    QDoubleSpinBox *m_skipSeconds;
+    QAction *m_skipBackwardAction;
+    QAction *m_skipForwardAction;
     QMenu *m_dvdMenu;
     QMenu *m_contextMenu;
     QAction *m_closeAction;
