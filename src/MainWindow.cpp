@@ -203,6 +203,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         button->setFocusPolicy(Qt::NoFocus);
         controls->addWidget(button);
     }
+    m_stepModeLabel = new QLabel;
+    m_stepModeLabel->setObjectName("stepModeLabel");
+    controls->addWidget(m_stepModeLabel);
     controls->addStretch();
     controls->addWidget(m_loop);
     controls->addWidget(m_mute);
@@ -228,6 +231,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     playMenu->addAction(tr("10秒戻る"), QKeySequence(Qt::Key_Left), this, [this] { m_backend->seek(m_backend->position() - 10000); });
     playMenu->addAction(tr("10秒進む"), QKeySequence(Qt::Key_Right), this, [this] { m_backend->seek(m_backend->position() + 10000); });
     auto *stopAction = playMenu->addAction(tr("停止（先頭に戻す）"), m_backend, &MediaBackend::stop);
+    playMenu->addAction(tr("1秒戻る"), QKeySequence(Qt::CTRL | Qt::Key_Left), this, [this] { m_backend->stepSecond(-1); });
+    playMenu->addAction(tr("1秒進む"), QKeySequence(Qt::CTRL | Qt::Key_Right), this, [this] { m_backend->stepSecond(1); });
+    m_previousFrame = playMenu->addAction(tr("1コマ戻る"), QKeySequence(Qt::ALT | Qt::Key_Left), this, [this] { m_backend->stepFrame(-1); });
+    m_nextFrame = playMenu->addAction(tr("1コマ進む"), QKeySequence(Qt::ALT | Qt::Key_Right), this, [this] { m_backend->stepFrame(1); });
+    m_previousFrame->setObjectName("previousFrameAction");
+    m_nextFrame->setObjectName("nextFrameAction");
+    m_previousFrame->setAutoRepeat(false);
+    m_nextFrame->setAutoRepeat(false);
     stopAction->setObjectName("stopAction");
     playMenu->addAction(tr("ミュート"), QKeySequence(Qt::Key_M), this, [this] { m_backend->setMuted(!m_backend->muted()); });
     m_dvdMenu = playMenu->addMenu(tr("DVDタイトル"));
@@ -282,6 +293,11 @@ void MainWindow::chooseFile()
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
 void MainWindow::refresh()
 {
+    const auto mode = m_backend->stepMode();
+    m_stepModeLabel->setText(mode == MediaBackend::StepMode::Frame ? tr("コマ送り") : tr("1秒再生"));
+    m_stepModeLabel->setVisible(mode != MediaBackend::StepMode::None);
+    m_previousFrame->setEnabled(m_backend->canStepFrame());
+    m_nextFrame->setEnabled(m_backend->canStepFrame());
     if (m_displayPath != m_backend->filePath()) {
         m_displayPath = m_backend->filePath();
         m_visualizer->reset();
@@ -342,7 +358,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     }
     if (event->type() == QEvent::ShortcutOverride && qobject_cast<QSlider *>(watched)) {
         auto *key = static_cast<QKeyEvent *>(event);
-        if (key->modifiers() == Qt::NoModifier && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
+        if ((key->modifiers() == Qt::NoModifier || key->modifiers() == Qt::ControlModifier || key->modifiers() == Qt::AltModifier)
+            && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
             // Let the window's seek shortcuts win over QSlider's arrow handling.
             event->ignore();
             return true;

@@ -30,6 +30,8 @@ private:
     QMenu *m_dvdMenu;
     QMenu *m_contextMenu;
     QAction *m_closeAction;
+    QAction *m_previousFrame;
+    QAction *m_nextFrame;
     MediaBackend *m_backend;
     QStackedWidget *m_display;
     AudioVisualizer *m_visualizer;
@@ -37,6 +39,7 @@ private:
     QSlider *m_seek;
     SeekPreview *m_preview;
     QLabel *m_time;
+    QLabel *m_stepModeLabel;
     QPushButton *m_play;
     QPushButton *m_pause;
     QPushButton *m_backward;
