@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 #include "MediaBackend.h"
 #include "SeekPreview.h"
+#include "AudioVisualizer.h"
+#include <QStackedWidget>
 #include <QVideoWidget>
 #include <QSlider>
 #include <QStyle>
@@ -124,7 +126,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     palette.setColor(QPalette::Window, Qt::black);
     video->setPalette(palette);
     video->setAutoFillBackground(true);
-    layout->addWidget(video, 1);
+    m_display = new QStackedWidget;
+    m_display->addWidget(video);
+    m_visualizer = new AudioVisualizer;
+    m_visualizer->setAcceptDrops(true);
+    m_visualizer->installEventFilter(this);
+    m_display->addWidget(m_visualizer);
+    layout->addWidget(m_display, 1);
     m_backend->setVideoSink(video->videoSink());
     auto *timeline = new QHBoxLayout;
     timeline->setContentsMargins(6, 0, 6, 0);
@@ -227,6 +235,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         m_backend->seek(m_backend->duration() * m_seek->value() / m_seek->maximum()); refresh();
     });
     connect(m_backend, &MediaBackend::changed, this, &MainWindow::refresh);
+    connect(m_backend, &MediaBackend::audioLevels, m_visualizer, &AudioVisualizer::setLevels);
     connect(m_backend, &MediaBackend::failure, this, [this](const QString &path, const QString &message) {
         auto *dialog = new QMessageBox(QMessageBox::Warning, tr("再生エラー"), path + "\n\n" + message, QMessageBox::Ok, this);
         dialog->setTextFormat(Qt::PlainText);
@@ -238,12 +247,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
 void MainWindow::chooseFile()
 {
     const QString path = QFileDialog::getOpenFileName(this, tr("動画・音声ファイルを開く"),
-        m_backend->filePath(), tr("動画ファイル (*.wmv *.mp4 *.avi *.m4v *.asf *.iso);;すべてのファイル (*)"));
+        m_backend->filePath(), tr("動画・音声ファイル (*.wmv *.mp4 *.avi *.m4v *.asf *.iso *.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wma);;音声ファイル (*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wma);;動画ファイル (*.wmv *.mp4 *.avi *.m4v *.asf *.iso);;すべてのファイル (*)"));
     if (!path.isEmpty()) openFile(path);
 }
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
 void MainWindow::refresh()
 {
+    if (m_displayPath != m_backend->filePath()) {
+        m_displayPath = m_backend->filePath();
+        m_visualizer->reset();
+    }
+    m_display->setCurrentIndex(m_backend->audioOnly() ? 1 : 0);
+    m_visualizer->setRunning(m_backend->audioOnly() && m_backend->playing());
     m_closeAction->setEnabled(!m_backend->filePath().isEmpty());
     m_play->setEnabled(m_backend->available() && !m_backend->playing());
     m_pause->setEnabled(m_backend->available() && m_backend->playing());

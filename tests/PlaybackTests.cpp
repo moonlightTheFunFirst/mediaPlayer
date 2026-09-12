@@ -24,12 +24,102 @@
 #include <QFrame>
 #include <QMenu>
 #include <QContextMenuEvent>
+#include "../src/AudioVisualizer.h"
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void audioAnalysis()
+    {
+        QAudioFormat format;
+        format.setSampleRate(48000); format.setChannelCount(2); format.setSampleFormat(QAudioFormat::Float);
+        auto tone = [&](double hz, float amplitude) {
+            QAudioBuffer buffer(4800, format);
+            float *samples = buffer.data<float>();
+            for (int i = 0; i < 4800; ++i) {
+                samples[i * 2] = amplitude * float(std::sin(2 * 3.141592653589793 * hz * i / 48000));
+                samples[i * 2 + 1] = -samples[i * 2];
+            }
+            return buffer;
+        };
+        AudioLevels analyzer;
+        const auto low = analyzer.process(tone(80, 0.5f));
+        QVERIFY(low.energy > 0.34f && low.energy < 0.36f);
+        QVERIFY(low.bass > 0.28f);
+        analyzer.reset();
+        const auto high = analyzer.process(tone(4000, 0.5f));
+        QVERIFY(high.bass < low.bass * 0.1f);
+        analyzer.reset();
+        const auto quiet = analyzer.process(tone(80, 0.05f));
+        QVERIFY(quiet.energy < low.energy * 0.11f);
+        analyzer.reset();
+        QCOMPARE(analyzer.process(tone(80, 0)).energy, 0.0f);
+    }
+    void audioVisualization()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const auto path = temp.filePath(QStringLiteral("音声 sample.wav"));
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+        QDataStream stream(&file); stream.setByteOrder(QDataStream::LittleEndian);
+        const quint32 bytes = 48000 * 8 * 2;
+        stream.writeRawData("RIFF", 4); stream << quint32(36 + bytes);
+        stream.writeRawData("WAVEfmt ", 8); stream << quint32(16) << quint16(1) << quint16(1)
+            << quint32(48000) << quint32(96000) << quint16(2) << quint16(16);
+        stream.writeRawData("data", 4); stream << bytes;
+        for (int i = 0; i < 48000 * 8; ++i) {
+            const double amplitude = (i % 24000 < 12000) ? 0.65 : 0.08;
+            stream << qint16(32767 * amplitude * std::sin(2 * 3.141592653589793 * 80 * i / 48000));
+        }
+        file.close();
+        MainWindow window; window.show();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *visual = window.findChild<AudioVisualizer *>();
+        auto *video = window.findChild<QVideoWidget *>();
+        QSignalSpy levels(backend, &MediaBackend::audioLevels);
+        QVERIFY(!visual->isVisible());
+        window.openFile(path);
+        backend->setMuted(true);
+        QTRY_VERIFY_WITH_TIMEOUT(backend->audioOnly() && visual->isVisible(), 10000);
+        QTRY_VERIFY(!levels.isEmpty());
+        QVERIFY(!video->isVisible());
+        const auto first = visual->grab().toImage();
+        QTest::qWait(400);
+        QVERIFY(first != visual->grab().toImage());
+        if (qEnvironmentVariableIsSet("ORANGE_VISUAL_PREVIEW")) window.grab().save(qEnvironmentVariable("ORANGE_VISUAL_PREVIEW"));
+        backend->pause();
+        QTRY_VERIFY(!backend->playing());
+        QTest::qWait(1800);
+        const auto paused = visual->grab().toImage();
+        QTest::qWait(150);
+        QCOMPARE(visual->grab().toImage(), paused);
+        QVERIFY(visual->isVisible());
+        backend->seek(2000); backend->togglePlayback();
+        QTRY_VERIFY(backend->playing());
+        QTRY_VERIFY(visual->grab().toImage() != paused);
+        backend->stop();
+        QVERIFY(visual->isVisible());
+        backend->togglePlayback();
+        QTRY_VERIFY(backend->playing());
+        window.openFile(QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"));
+        QTRY_VERIFY(backend->hasVideo());
+        QVERIFY(!visual->isVisible()); QVERIFY(video->isVisible());
+        window.openFile(path);
+        QTRY_VERIFY(visual->isVisible());
+        QMimeData mime; mime.setUrls({QUrl::fromLocalFile(path)});
+        QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(visual, &enter); QVERIFY(enter.isAccepted());
+        QContextMenuEvent context(QContextMenuEvent::Mouse, QPoint(10, 10), visual->mapToGlobal(QPoint(10, 10)));
+        QApplication::sendEvent(visual, &context);
+        auto *menu = window.findChild<QMenu *>("mediaContextMenu");
+        QTRY_VERIFY(menu->isVisible());
+        auto *close = window.findChild<QAction *>("closeMediaAction");
+        QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(close).center());
+        QVERIFY(!visual->isVisible()); QVERIFY(!backend->audioOnly());
+        QCOMPARE(window.windowTitle(), QStringLiteral("Orange"));
+    }
     void closeMedia_data()
     {
         QTest::addColumn<QString>("path");

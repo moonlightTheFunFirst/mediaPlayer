@@ -8,6 +8,8 @@ class QPushButton;
 class SeekPreview;
 class QMenu;
 class QAction;
+class AudioVisualizer;
+class QStackedWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -29,6 +31,9 @@ private:
     QMenu *m_contextMenu;
     QAction *m_closeAction;
     MediaBackend *m_backend;
+    QStackedWidget *m_display;
+    AudioVisualizer *m_visualizer;
+    QString m_displayPath;
     QSlider *m_seek;
     SeekPreview *m_preview;
     QLabel *m_time;
