@@ -5,6 +5,9 @@
 #include <QStackedWidget>
 #include <QVideoWidget>
 #include <QSlider>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QLocale>
 #include <QStyle>
 #include <QStyleOptionSlider>
 #include <QMouseEvent>
@@ -207,6 +210,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     m_stepModeLabel->setObjectName("stepModeLabel");
     controls->addWidget(m_stepModeLabel);
     controls->addStretch();
+    m_skipSeconds = new QDoubleSpinBox;
+    m_skipSeconds->setObjectName("skipSecondsSpinBox");
+    m_skipSeconds->setLocale(QLocale::c());
+    m_skipSeconds->setDecimals(1);
+    m_skipSeconds->setRange(0.1, 3600.0);
+    m_skipSeconds->setSingleStep(0.1);
+    m_skipSeconds->setValue(10.0);
+    m_skipSeconds->setSuffix(tr(" 秒"));
+    m_skipSeconds->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_skipSeconds->setKeyboardTracking(false);
+    m_skipSeconds->setAccessibleName(tr("スキップ秒数"));
+    m_skipSeconds->setToolTip(tr("左右キーと戻る／進むボタンの移動量（0.1～3600.0秒）"));
+    m_skipSeconds->setMaximumWidth(110);
+    m_skipSeconds->installEventFilter(this);
+    m_skipSeconds->findChild<QLineEdit *>()->installEventFilter(this);
+    controls->addWidget(m_skipSeconds);
     controls->addWidget(m_loop);
     controls->addWidget(m_mute);
     controls->addWidget(volume);
@@ -228,8 +247,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
     auto *playMenu = menuBar()->addMenu(tr("再生(&P)"));
     auto *toggleAction = playMenu->addAction(tr("再生／一時停止"), QKeySequence(Qt::Key_Space), m_backend, &MediaBackend::togglePlayback);
     toggleAction->setAutoRepeat(false);
-    playMenu->addAction(tr("10秒戻る"), QKeySequence(Qt::Key_Left), this, [this] { m_backend->seek(m_backend->position() - 10000); });
-    playMenu->addAction(tr("10秒進む"), QKeySequence(Qt::Key_Right), this, [this] { m_backend->seek(m_backend->position() + 10000); });
+    m_skipBackwardAction = playMenu->addAction(tr("10.0秒戻る"), QKeySequence(Qt::Key_Left), this, [this] { skip(-1); });
+    m_skipForwardAction = playMenu->addAction(tr("10.0秒進む"), QKeySequence(Qt::Key_Right), this, [this] { skip(1); });
+    connect(m_skipSeconds, &QDoubleSpinBox::valueChanged, this, &MainWindow::refreshSkipLabels);
+    connect(m_skipSeconds, &QDoubleSpinBox::editingFinished, this, [this] {
+        if (m_skipSeconds->hasFocus()) setFocus(Qt::OtherFocusReason);
+    });
+    refreshSkipLabels();
     auto *stopAction = playMenu->addAction(tr("停止（先頭に戻す）"), m_backend, &MediaBackend::stop);
     playMenu->addAction(tr("1秒戻る"), QKeySequence(Qt::CTRL | Qt::Key_Left), this, [this] { m_backend->stepSecond(-1); });
     playMenu->addAction(tr("1秒進む"), QKeySequence(Qt::CTRL | Qt::Key_Right), this, [this] { m_backend->stepSecond(1); });
@@ -261,8 +285,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_backend(new Med
         if (!m_backend->playing()) m_backend->togglePlayback();
     });
     connect(m_pause, &QPushButton::clicked, m_backend, &MediaBackend::pause);
-    connect(m_backward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() - 10000); });
-    connect(m_forward, &QPushButton::clicked, this, [this] { m_backend->seek(m_backend->position() + 10000); });
+    connect(m_backward, &QPushButton::clicked, this, [this] { skip(-1); });
+    connect(m_forward, &QPushButton::clicked, this, [this] { skip(1); });
     connect(m_mute, &QPushButton::clicked, m_backend, &MediaBackend::setMuted);
     connect(m_loop, &QPushButton::clicked, m_backend, &MediaBackend::setLooping);
     connect(volume, &QSlider::valueChanged, this, [this, volumeText](int value) {
@@ -291,6 +315,23 @@ void MainWindow::chooseFile()
     if (!path.isEmpty()) openFile(path);
 }
 void MainWindow::openFile(const QString &path) { m_backend->open(path); }
+void MainWindow::skip(int direction)
+{
+    m_skipSeconds->interpretText();
+    m_backend->seek(m_backend->position() + direction * qRound64(m_skipSeconds->value() * 1000));
+}
+void MainWindow::refreshSkipLabels()
+{
+    const QString seconds = QString::number(m_skipSeconds->value(), 'f', 1);
+    const QString backward = tr("%1秒戻る").arg(seconds);
+    const QString forward = tr("%1秒進む").arg(seconds);
+    m_skipBackwardAction->setText(backward);
+    m_skipForwardAction->setText(forward);
+    m_backward->setToolTip(backward + tr(" (←)"));
+    m_forward->setToolTip(forward + tr(" (→)"));
+    m_backward->setAccessibleName(m_backward->toolTip());
+    m_forward->setAccessibleName(m_forward->toolTip());
+}
 void MainWindow::refresh()
 {
     const auto mode = m_backend->stepMode();
@@ -352,6 +393,16 @@ void MainWindow::dropEvent(QDropEvent *event)
 }
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::ShortcutOverride
+        && (watched == m_skipSeconds || watched->parent() == m_skipSeconds)) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right) {
+            event->accept();
+            return true;
+        }
+    }
+    if (watched == m_skipSeconds || watched->parent() == m_skipSeconds)
+        return QMainWindow::eventFilter(watched, event); // Preserve text editing/paste menus.
     if (event->type() == QEvent::ContextMenu) {
         contextMenuEvent(static_cast<QContextMenuEvent *>(event));
         return true;

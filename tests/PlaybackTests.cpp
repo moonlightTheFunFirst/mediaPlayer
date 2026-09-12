@@ -17,6 +17,8 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QSlider>
+#include <QDoubleSpinBox>
+#include <QLineEdit>
 #include <QAction>
 #include <QDataStream>
 #include "../src/ThumbnailProvider.h"
@@ -32,6 +34,45 @@ class PlaybackTests : public QObject
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void customSkip()
+    {
+        MainWindow window; window.show(); window.activateWindow();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *seconds = window.findChild<QDoubleSpinBox *>("skipSecondsSpinBox");
+        auto *editor = seconds->findChild<QLineEdit *>();
+        QCOMPARE(seconds->value(), 10.0);
+        const auto path = QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
+        window.openFile(path);
+        QTRY_VERIFY(backend->seekable()); backend->pause(); backend->seek(0);
+        seconds->setFocus(); seconds->selectAll();
+        QTest::keyClicks(editor, "1.5");
+        QCOMPARE(seconds->value(), 10.0); // Commit only on Enter/focus loss.
+        QTest::keyClick(editor, Qt::Key_Left);
+        QCOMPARE(backend->position(), qint64(0));
+        QTest::keyClick(editor, Qt::Key_Return);
+        QCOMPARE(seconds->value(), 1.5);
+        QVERIFY(!seconds->hasFocus());
+        QTest::keyClick(&window, Qt::Key_Right);
+        QTRY_COMPARE(backend->position(), qint64(1500));
+        QVERIFY(!backend->playing());
+        QTest::keyClick(&window, Qt::Key_Left);
+        QTRY_COMPARE(backend->position(), qint64(0));
+        auto *forward = window.findChild<QPushButton *>("seekForwardButton");
+        QVERIFY(forward->toolTip().contains("1.5"));
+        QTest::mouseClick(forward, Qt::LeftButton);
+        QTRY_COMPARE(backend->position(), qint64(1500));
+        backend->seek(0);
+        QTest::keyClick(&window, Qt::Key_Right, Qt::ControlModifier);
+        QTRY_COMPARE(backend->position(), qint64(1000));
+        seconds->setFocus(); seconds->selectAll(); QTest::keyClicks(editor, "0.1");
+        window.setFocus(); QCOMPARE(seconds->value(), 0.1);
+        backend->seek(0); QTest::keyClick(&window, Qt::Key_Right);
+        QTRY_COMPARE(backend->position(), qint64(100));
+        window.openFile(path); QCOMPARE(seconds->value(), 0.1);
+        backend->close(); QCOMPARE(seconds->value(), 0.1);
+        MainWindow fresh;
+        QCOMPARE(fresh.findChild<QDoubleSpinBox *>("skipSecondsSpinBox")->value(), 10.0);
+    }
     void variableFrameTimes()
     {
         // Four independently encoded GIF frames with unequal display durations.
