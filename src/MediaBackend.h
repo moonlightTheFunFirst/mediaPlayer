@@ -5,6 +5,7 @@
 class DvdPlayer;
 class QAudioOutput;
 class QVideoSink;
+class FrameStepper;
 
 // All playback-library operations live here; the UI uses this small interface.
 class MediaBackend : public QObject
@@ -20,6 +21,12 @@ public:
     void pause();
     void stop();
     void seek(qint64 milliseconds);
+    void stepFrame(int direction);
+    void stepSecond(int direction);
+    enum class StepMode { None, Frame, Second };
+    StepMode stepMode() const { return m_frameTimeUs >= 0 ? StepMode::Frame : (m_secondMode ? StepMode::Second : StepMode::None); }
+    bool canStepFrame() const;
+    bool frameStepBusy() const { return m_frameBusy; }
     void setVolume(int percent);
     void setMuted(bool muted);
     void setLooping(bool enabled);
@@ -45,6 +52,11 @@ signals:
     void audioLevels(float energy, float bass);
     void failure(const QString &path, const QString &message);
 private:
+    void leaveFrameMode();
+    FrameStepper *m_stepper;
+    qint64 m_frameTimeUs = -1;
+    bool m_frameBusy = false;
+    bool m_secondMode = false;
     DvdPlayer *m_dvd;
     bool m_isDvd = false;
     bool m_looping = false;

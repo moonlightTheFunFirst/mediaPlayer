@@ -10,6 +10,7 @@
 Qt / FFmpegは動的リンクで使用しています。実際のライセンス条件は使用したQtキットと各同梱コンポーネントに従います。
 `licenses/Qt/`にQt 6.8.3ソースのqtbase/LICENSES、`licenses/FFmpeg/`にqtmultimedia/src/3rdparty/ffmpegのライセンス本文と帰属情報を同梱します。
 Qt側の帰属情報はFFmpeg n7.1を記載しており、実行時のQtログでも7.1を確認しました。
+通常動画のコマ送りにも同梱FFmpeg DLLを使用します。ビルド用ヘッダーは公式FFmpeg n7.1由来で、出典とライセンスはリポジトリの `third_party/ffmpeg/` に保持しています。
 このフォルダは現時点で開発・動作確認用です。外部配布時のソース提供方法と、同梱プラグインを含む第三者通知の最終確認は今後の配布整備で行います。
 # DVD ISO playback: libVLC
 

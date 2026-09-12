@@ -1,5 +1,6 @@
 #include "MediaBackend.h"
 #include "DvdPlayer.h"
+#include "FrameStepper.h"
 #include <QVideoSink>
 #include <QVideoFrame>
 #include <QAudioOutput>
@@ -12,6 +13,18 @@
 
 MediaBackend::MediaBackend(QObject *parent) : QObject(parent), m_dvd(new DvdPlayer(this)), m_audio(new QAudioOutput(this))
 {
+    m_stepper = new FrameStepper(this);
+    connect(m_stepper, &FrameStepper::ready, this, [this](const QImage &image, qint64 time, const QString &error) {
+        m_frameBusy = false;
+        if (!error.isEmpty()) { emit changed(); emit failure(m_path, error); return; }
+        m_frameTimeUs = time;
+        if (m_sink) {
+            QVideoFrame frame(image);
+            frame.setStartTime(time);
+            m_sink->setVideoFrame(frame);
+        }
+        emit changed();
+    });
     m_audio->setVolume(0.5f);
     connect(m_dvd, &DvdPlayer::changed, this, [this] { if (m_isDvd) emit changed(); });
     connect(m_dvd, &DvdPlayer::failure, this, [this](const QString &error) { if (m_isDvd) emit failure(m_path, error); });
@@ -91,6 +104,10 @@ void MediaBackend::open(const QString &path)
 }
 void MediaBackend::close()
 {
+    m_secondMode = false;
+    m_stepper->cancel();
+    m_frameTimeUs = -1;
+    m_frameBusy = false;
     m_playRequested = false;
     // Retire the source before clearing the last frame and notifying the UI.
     m_isDvd = false;
@@ -109,9 +126,12 @@ void MediaBackend::close()
 void MediaBackend::togglePlayback()
 {
     if (!available()) return;
+    m_secondMode = false;
+    emit changed();
     if (m_isDvd) { playing() ? m_dvd->pause() : m_dvd->play(); return; }
     if (playing()) pause();
     else {
+        leaveFrameMode();
         m_playRequested = true;
         if (m_player->mediaStatus() == QMediaPlayer::EndOfMedia) m_player->setPosition(0);
         m_player->play();
@@ -120,6 +140,7 @@ void MediaBackend::togglePlayback()
 void MediaBackend::pause() { m_playRequested = false; if (m_isDvd) m_dvd->pause(); else if (available()) m_player->pause(); }
 void MediaBackend::stop()
 {
+    leaveFrameMode();
     m_playRequested = false;
     if (m_isDvd) { m_dvd->stop(); return; }
     if (m_player) { m_player->stop(); m_player->setPosition(0); }
@@ -127,6 +148,7 @@ void MediaBackend::stop()
 }
 void MediaBackend::seek(qint64 milliseconds)
 {
+    leaveFrameMode();
     m_levels.reset();
     if (m_isDvd) { m_dvd->seek(milliseconds); return; }
     if (seekable()) m_player->setPosition(std::clamp(milliseconds, qint64(0), duration()));
@@ -141,7 +163,40 @@ void MediaBackend::setLooping(bool enabled)
 void MediaBackend::setMuted(bool muted) { m_audio->setMuted(muted); if (m_isDvd) m_dvd->volume(volume(), muted); emit changed(); }
 int MediaBackend::volume() const { return qRound(m_audio->volume() * 100); }
 bool MediaBackend::muted() const { return m_audio->isMuted(); }
-qint64 MediaBackend::position() const { if (m_isDvd) return m_dvd->state().position; return m_player ? m_player->position() : 0; }
+qint64 MediaBackend::position() const { if (m_frameTimeUs >= 0) return m_frameTimeUs / 1000; if (m_isDvd) return m_dvd->state().position; return m_player ? m_player->position() : 0; }
+bool MediaBackend::canStepFrame() const { return !m_isDvd && hasVideo() && seekable() && !m_frameBusy; }
+void MediaBackend::stepFrame(int direction)
+{
+    if (!canStepFrame() || !m_sink || direction == 0) return;
+    const auto shown = m_sink->videoFrame();
+    const qint64 anchor = m_frameTimeUs >= 0 ? m_frameTimeUs : (shown.isValid() && shown.startTime() >= 0 ? shown.startTime() : position() * 1000);
+    pause();
+    m_frameTimeUs = anchor;
+    m_player->setVideoSink(nullptr);
+    if (shown.isValid()) m_sink->setVideoFrame(shown);
+    m_frameBusy = true;
+    m_stepper->request(m_path, anchor, direction);
+    emit changed();
+}
+void MediaBackend::leaveFrameMode()
+{
+    const bool wasSecondMode = m_secondMode;
+    m_secondMode = false;
+    m_stepper->cancel();
+    m_frameBusy = false;
+    if (m_frameTimeUs < 0) { if (wasSecondMode) emit changed(); return; }
+    const auto time = m_frameTimeUs;
+    m_frameTimeUs = -1;
+    if (m_player) { m_player->setVideoSink(m_sink); m_player->setPosition((time + 500) / 1000); }
+    emit changed();
+}
+void MediaBackend::stepSecond(int direction)
+{
+    if (!seekable() || direction == 0) return;
+    seek(position() + (direction > 0 ? 1000 : -1000));
+    m_secondMode = true;
+    emit changed();
+}
 qint64 MediaBackend::duration() const { if (m_isDvd) return m_dvd->state().duration; return m_player ? m_player->duration() : 0; }
 bool MediaBackend::seekable() const { if (m_isDvd) return m_dvd->state().seekable; return available() && m_player->isSeekable() && duration() > 0; }
 bool MediaBackend::playing() const { if (m_isDvd) return m_dvd->state().playing; return m_player && m_player->playbackState() == QMediaPlayer::PlayingState; }
@@ -165,4 +220,4 @@ QString MediaBackend::statusText() const
 
 QStringList MediaBackend::dvdTitles() const { return m_isDvd ? m_dvd->state().titles : QStringList(); }
 int MediaBackend::dvdTitle() const { return m_isDvd ? m_dvd->state().title : -1; }
-void MediaBackend::selectDvdTitle(int index) { if (m_isDvd) m_dvd->selectTitle(index); }
+void MediaBackend::selectDvdTitle(int index) { if (m_isDvd) { m_secondMode = false; m_dvd->selectTitle(index); emit changed(); } }

@@ -25,12 +25,135 @@
 #include <QMenu>
 #include <QContextMenuEvent>
 #include "../src/AudioVisualizer.h"
+#include "../src/FrameStepper.h"
 
 class PlaybackTests : public QObject
 {
     Q_OBJECT
     QString root = qEnvironmentVariable("QT_MEDIA_TEST_ROOT");
 private slots:
+    void variableFrameTimes()
+    {
+        // Four independently encoded GIF frames with unequal display durations.
+        QTemporaryDir temp;
+        QFile file(temp.filePath("variable.gif")); QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(QByteArray::fromHex("47494638396101000100810000ff000000ff000000ffffff00"));
+        const int delays[] = {4, 10, 7, 12};
+        for (int i = 0; i < 4; ++i) {
+            QByteArray control = QByteArray::fromHex("21f9040000000000"); control[4] = char(delays[i]);
+            file.write(control);
+            file.write(QByteArray::fromHex("2c0000000001000100000202"));
+            file.putChar(char(0x44 + i * 8)); file.putChar(1); file.putChar(0);
+        }
+        file.putChar(';'); file.close();
+        FrameStepper stepper; QSignalSpy frames(&stepper, &FrameStepper::ready);
+        const qint64 times[] = {0, 40000, 140000, 210000};
+        const QColor colors[] = {Qt::red, Qt::green, Qt::blue, Qt::yellow};
+        for (int direction : {1, -1}) {
+            for (int j = 0; j < 3; ++j) {
+                const int index = direction > 0 ? j : 3 - j;
+                frames.clear(); stepper.request(file.fileName(), times[index], direction);
+                QVERIFY(frames.wait(16000));
+                QVERIFY2(frames[0][2].toString().isEmpty(), qPrintable(frames[0][2].toString()));
+                QCOMPARE(frames[0][1].toLongLong(), times[index + direction]);
+                QCOMPARE(qvariant_cast<QImage>(frames[0][0]).pixelColor(0, 0), colors[index + direction]);
+            }
+        }
+    }
+    void frameFormats_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::newRow("AVI") << QDir(root).filePath("qmediaplayerformatsupport/testdata/containers/supported/container.avi");
+        const auto wmv = qEnvironmentVariable("WMV9_SAMPLE");
+        if (!wmv.isEmpty()) QTest::newRow("WMV9") << wmv;
+    }
+    void frameFormats()
+    {
+        QFETCH(QString, path);
+        FrameStepper stepper; QSignalSpy frames(&stepper, &FrameStepper::ready);
+        stepper.request(path, 400000, 1); QVERIFY(frames.wait(16000));
+        QVERIFY2(frames[0][2].toString().isEmpty(), qPrintable(frames[0][2].toString()));
+        const auto time = frames[0][1].toLongLong();
+        if (path.endsWith(".avi")) QCOMPARE(time, qint64(600000)); // Fixture is 5 fps.
+        else QVERIFY(time > 400000 && time < 500000);
+        frames.clear(); stepper.request(path, time, -1); QVERIFY(frames.wait(16000));
+        QVERIFY2(frames[0][2].toString().isEmpty(), qPrintable(frames[0][2].toString()));
+        if (path.endsWith(".avi")) QCOMPARE(frames[0][1].toLongLong(), qint64(400000));
+        else QVERIFY(frames[0][1].toLongLong() < time);
+        QVideoSink sink;
+        MediaBackend backend;
+        backend.setVideoSink(&sink); backend.open(path); backend.setMuted(true);
+        QTRY_VERIFY(backend.canStepFrame() && sink.videoFrame().isValid());
+        backend.pause();
+        const auto shown = sink.videoFrame().startTime();
+        backend.stepFrame(1);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend.frameStepBusy(), 16000);
+        QCOMPARE(sink.videoFrame().startTime(), shown + (path.endsWith(".avi") ? 200000 : 40000));
+        backend.stepFrame(-1);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend.frameStepBusy(), 16000);
+        QCOMPARE(sink.videoFrame().startTime(), shown);
+        backend.setVideoSink(nullptr);
+    }
+    void frameDecode()
+    {
+        FrameStepper stepper;
+        QSignalSpy frames(&stepper, &FrameStepper::ready);
+        const auto path = QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4");
+        auto step = [&](qint64 anchor, int direction) {
+            frames.clear(); stepper.request(path, anchor, direction);
+            return frames.wait(16000);
+        };
+        QVERIFY(step(0, 1));
+        QVERIFY2(frames[0][2].toString().isEmpty(), qPrintable(frames[0][2].toString()));
+        QCOMPARE(frames[0][1].toLongLong(), qint64(40000));
+        QVERIFY(!qvariant_cast<QImage>(frames[0][0]).isNull());
+        QVERIFY(step(40000, 1)); QCOMPARE(frames[0][1].toLongLong(), qint64(80000));
+        QVERIFY(step(80000, -1)); QCOMPARE(frames[0][1].toLongLong(), qint64(40000));
+        QVERIFY(step(40000, -1)); QCOMPARE(frames[0][1].toLongLong(), qint64(0));
+        QVERIFY(step(0, -1)); QCOMPARE(frames[0][1].toLongLong(), qint64(0));
+        QVERIFY(step(10000000, 1));
+        QVERIFY2(frames[0][2].toString().isEmpty(), qPrintable(frames[0][2].toString()));
+        const auto last = frames[0][1].toLongLong();
+        QVERIFY(last >= 80000);
+        QVERIFY(step(last, 1)); QCOMPARE(frames[0][1].toLongLong(), last);
+    }
+    void frameControls()
+    {
+        MainWindow window; window.show(); window.activateWindow();
+        auto *backend = window.findChild<MediaBackend *>();
+        auto *video = window.findChild<QVideoWidget *>();
+        auto *modeLabel = window.findChild<QLabel *>("stepModeLabel");
+        QVERIFY(modeLabel && !modeLabel->isVisible());
+        QSignalSpy errors(backend, &MediaBackend::failure);
+        window.openFile(QDir(root).filePath("qmediaplayerbackend/testdata/3colors_with_sound_1s.mp4"));
+        QTRY_VERIFY(backend->canStepFrame() && video->videoSink()->videoFrame().isValid());
+        backend->pause();
+        const auto anchor = video->videoSink()->videoFrame().startTime();
+        auto *volume = window.findChild<QSlider *>("volumeSlider");
+        volume->setFocus();
+        QTest::keyClick(volume, Qt::Key_Right, Qt::AltModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend->frameStepBusy(), 16000);
+        QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors[0][1].toString()));
+        QCOMPARE(video->videoSink()->videoFrame().startTime(), anchor + 40000);
+        QVERIFY(modeLabel->isVisible()); QCOMPARE(modeLabel->text(), QStringLiteral("コマ送り"));
+        QVERIFY(!backend->playing());
+        const auto forward = video->videoSink()->videoFrame().startTime();
+        QTest::qWait(200); QCOMPARE(video->videoSink()->videoFrame().startTime(), forward);
+        QTest::keyClick(volume, Qt::Key_Left, Qt::AltModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend->frameStepBusy(), 16000);
+        QCOMPARE(video->videoSink()->videoFrame().startTime(), anchor);
+        QTest::keyClick(volume, Qt::Key_Right, Qt::ControlModifier);
+        QVERIFY(modeLabel->isVisible()); QCOMPARE(modeLabel->text(), QStringLiteral("1秒再生"));
+        QVERIFY(!backend->playing());
+        QTRY_VERIFY(backend->position() >= 1000);
+        backend->togglePlayback(); QTRY_VERIFY(backend->playing());
+        QVERIFY(!modeLabel->isVisible());
+        backend->stepFrame(-1); backend->close();
+        QTest::qWait(300);
+        QVERIFY(backend->filePath().isEmpty()); QVERIFY(!video->videoSink()->videoFrame().isValid());
+        window.openFile(QDir(root).filePath("qmediaplayerbackend/testdata/test.wav"));
+        QTRY_VERIFY(backend->audioOnly()); QVERIFY(!backend->canStepFrame());
+    }
     void visualizerColors()
     {
         AudioVisualizer visual;
