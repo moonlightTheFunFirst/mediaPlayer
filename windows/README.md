@@ -1,4 +1,4 @@
-# Windows 開発環境
+﻿# Windows 開発環境
 
 アプリ名（仮称）は **Orange**。タイトルバー・タスクバー・実行ファイルに葉付きオレンジのアイコンを使用する。
 実行ファイル名は `Orange.exe`。
@@ -18,6 +18,19 @@
 共通のアプリケーションコードはルートの `src/`、共通ビルド定義はルートの `CMakeLists.txt` に置く。
 Windows固有のビルド・配布処理はこのディレクトリ内で管理する。
 
+## 出先環境での確認（2026-09-14）
+
+`D:\Qt\6.8.2\mingw_64`、Qt付属MinGW 13.1.0、CMake 3.30でReleaseのクリーンビルドと配布出力の生成を確認した。システムディレクトリだけのPATHで、出力先のQt Widgets／Multimedia初期化（終了コード0）とOrangeの起動を確認済み。実素材の再生・DVD・MSVC版の再検証は未実施。
+
+このPCでは追加設定なしで下記バッチを実行できる。VLCは未導入のためDVD ISO再生には別途VLC 3.x x64が必要。
+
+```bat
+windows\rebuild_and_run.bat
+windows\rebuild_and_deploy.bat
+```
+
+キットを明示する場合は `set QT_DIR=D:\Qt\6.8.2\mingw_64` を先に実行する。
+
 ## ビルド・起動
 
 エクスプローラーから `rebuild_and_run.bat` を実行するか、リポジトリのルートで次を実行する。
@@ -26,8 +39,8 @@ Windows固有のビルド・配布処理はこのディレクトリ内で管理�
 windows\rebuild_and_run.bat
 ```
 
-CMakeでMSVC x64 Releaseを構成し、クリーンビルド、Qt DLL配置後にプレイヤーを起動する。
-生成先は `windows/build/msvc-release/Release/Orange.exe`。
+Qtキットに合わせてMSVCまたはMinGWのx64 Releaseを構成し、クリーンビルド、Qt DLL・コンパイラランタイム配置後にプレイヤーを起動する。
+生成先はMSVCでは `windows/build/msvc-release/Release/Orange.exe`、MinGWでは `windows/build/mingw-release/Orange.exe`。
 起動中の対象プレイヤーがある場合はエラーで止まるので、閉じてから再実行する。
 
 ## 配布用フォルダの作成
@@ -40,7 +53,7 @@ windows\rebuild_and_deploy.bat
 必要ファイルと実行ファイルのSHA-256を確認してから `windows/output/` を更新する。
 以前のoutputは `windows/build/output-backup-…/` に保持する。
 出力内の `Orange.exe` を実行する。別PCに移すときは **outputフォルダ全体** をコピーする。
-VC++ランタイムがないPCでは、同梱の `vc_redist.x64.exe` を実行する。
+MSVC版でVC++ランタイムがないPCでは、同梱の `vc_redist.x64.exe` を実行する。MinGW版では必要な3つのランタイムDLLを同梱するため、このインストーラーは不要。
 バッチによるランタイムの自動インストールは行わない。
 
 ### 配布物の軽量化
@@ -55,8 +68,8 @@ Qt 6.8.3 / VLC 3.0.23で、454ファイル・230.5MiBから372ファイル・191
 開発用Qt/VLCパスを外した配布構成で21件のテストが成功。DVDの映像・音声出力、タイトル選択・シーク、MP4/WMV/AVI、サムネイル生成、アイコン、D&D、キーボード・全画面を確認。
 既知の不安定なホバーテスト2件は今回のテスト対象から除外した。別PC・別DVDの追加検証は未実施。
 
-別のQtキットを使う場合は、事前に `QT_MSVC_DIR` をMSVC x64版のルートに設定する。
-既定は `F:\Qt\6.8.3\msvc2022_64`。MinGW版とは混在させない。
+Qtの指定は `-QtRoot` 引数、環境変数 `QT_DIR`、従来の `QT_MSVC_DIR` の順で優先する。未指定時は各ドライブの `Qt/6.*/msvc*_64` または `Qt/6.*/mingw_64` を新しいバージョン順で探索する。複数キットがあるPCでは `QT_DIR` で指定する。MSVC版とMinGW版を混在させない。
+CMakeはQt配下の `Tools/CMake_64` を優先する。MinGWはQt 6.8付属の `Tools/mingw1310_64` を使用し、別配置なら `MINGW_DIR` で指定する。MSVC版にはVisual Studio 2022のC++ x64ツールが必要。
 スクリプトのFFmpeg DLL確認はこのQt 6.8.3キットのバージョンを対象にしている。
 自動実行では `MEDIAPLAYER_NO_PAUSE=1` を設定すると、失敗時のpauseを省略できる。
 
@@ -70,7 +83,7 @@ Qt 6.8.3 / VLC 3.0.23で、454ファイル・230.5MiBから372ファイル・191
 - DVDメニュー操作、チャプター選択、音声／字幕トラック選択、Blu-ray・データISOは初期版の対象外。ISOのホバーは時刻のみで、サムネイルは表示しない。
 - 暗号化されていないDVD-Videoを対象に検証する。すべてのディスク構造や暗号化されたISOの再生は保証しない。
 
-ビルドにはVLC 3.x x64が必要。既定は `C:/Program Files/VideoLAN/VLC`。
+DVD ISO対応の同梱にはVLC 3.x x64が必要。既定は `C:/Program Files/VideoLAN/VLC`。未導入の場合は警告を表示し、通常動画・音声用としてビルド／配布を続行する。DVD対応を必須にする場合は `scripts/rebuild.ps1 -Mode Deploy -RequireVlc` を使用する。明示した `ORANGE_VLC_DIR` が不正な場合はエラーにする。
 別の配置なら `ORANGE_VLC_DIR` を指定する。バッチはDLL・プラグインを出力先の `vlc/` に同梱するので、利用先でのVLCインストールは不要。
 実行時も同じ環境変数でライブラリの場所を上書きできる。VLCがなくても通常動画の再生は可能。
 
@@ -130,7 +143,7 @@ WMV9/WMA、MP4/H.264/AAC、AVI/MPEG-4 Part 2などの検証結果はルートREA
 
 ## 環境確認の実行
 
-リポジトリのルートでPowerShellから実行する。CMakeがPATHにあり、Visual Studio 2022のC++ツールがインストールされていること。
+リポジトリのルートでPowerShellから実行する。ビルドと同じQt・コンパイラ自動検出を使用する。
 
 ```powershell
 .\windows\scripts\check-environment.ps1
@@ -142,7 +155,7 @@ WMV9/WMA、MP4/H.264/AAC、AVI/MPEG-4 Part 2などの検証結果はルートREA
 .\windows\scripts\check-environment.ps1 -QtRoot 'F:\Qt\6.8.3\msvc2022_64'
 ```
 
-生成先は `windows/build/environment-check-msvc/`。確認プログラムはウィンドウを表示せず終了する。
+生成先は `windows/build/environment-check-msvc-release/` または `windows/build/environment-check-mingw-release/`。確認プログラムはウィンドウを表示せず終了する。
 Qtのパス設定は確認プログラムを動かすプロセス内のみで変更し、実行後に復元する。
 
 今回、Codexのサンドボックス内では環境変数 `Path` / `PATH` の重複によりMSBuildがMSB6001で失敗した。

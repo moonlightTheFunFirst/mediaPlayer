@@ -1,25 +1,22 @@
-param(
-    [string]$QtRoot = 'F:\Qt\6.8.3\msvc2022_64'
-)
+param([string]$QtRoot)
 $ErrorActionPreference = 'Stop'
-$windowsRoot = Split-Path $PSScriptRoot -Parent
-$buildDir = Join-Path $windowsRoot 'build/environment-check-msvc'
-if (-not (Test-Path (Join-Path $QtRoot 'lib/cmake/Qt6/Qt6Config.cmake'))) {
-    throw "Qt MSVC kit not found: $QtRoot"
-}
-& cmake -S (Join-Path $windowsRoot 'environment-check') -B $buildDir `
-    -G 'Visual Studio 17 2022' -A x64 "-DCMAKE_PREFIX_PATH=$QtRoot"
-if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
-& cmake --build $buildDir --config Debug
-if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 $previousPath = $env:PATH
 $previousPluginPath = $env:QT_PLUGIN_PATH
+$previousVcInstallDir = $env:VCINSTALLDIR
 try {
-    $env:PATH = "$(Join-Path $QtRoot 'bin');$previousPath"
-    $env:QT_PLUGIN_PATH = Join-Path $QtRoot 'plugins'
-    & (Join-Path $buildDir 'Debug/mediaPlayerEnvironmentCheck.exe')
+    . (Join-Path $PSScriptRoot 'build-environment.ps1')
+    $build = Get-OrangeBuildEnvironment -QtRoot $QtRoot
+    $windowsRoot = Split-Path $PSScriptRoot -Parent
+    $buildDir = Join-Path $windowsRoot ('build/environment-check-' + $build.Name)
+    & $build.CMake -S (Join-Path $windowsRoot 'environment-check') -B $buildDir @($build.Configure)
+    if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+    & $build.CMake --build $buildDir --config Release --parallel
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+    $env:QT_PLUGIN_PATH = Join-Path $build.QtRoot 'plugins'
+    & (Join-Path (Join-Path $buildDir $build.ExeSubdir) 'mediaPlayerEnvironmentCheck.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Qt initialization check failed.' }
 } finally {
     $env:PATH = $previousPath
     $env:QT_PLUGIN_PATH = $previousPluginPath
+    $env:VCINSTALLDIR = $previousVcInstallDir
 }
