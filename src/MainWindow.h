@@ -47,7 +47,6 @@ private:
     QLabel *m_time;
     QLabel *m_stepModeLabel;
     QPushButton *m_play;
-    QPushButton *m_pause;
     QPushButton *m_backward;
     QPushButton *m_forward;
     QPushButton *m_mute;

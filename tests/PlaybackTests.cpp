@@ -811,15 +811,14 @@ private slots:
         auto *video = window.findChild<QVideoWidget *>();
         QVERIFY(video);
         QTRY_VERIFY_WITH_TIMEOUT(video->videoSink()->videoFrame().isValid(), 15000);
-        auto *pause = window.findChild<QPushButton *>("pauseButton");
         auto *play = window.findChild<QPushButton *>("playButton");
         auto *stop = window.findChild<QAction *>("stopAction");
-        QVERIFY(pause);
+        QVERIFY(!window.findChild<QPushButton *>("pauseButton"));
         QVERIFY(play);
         QVERIFY(stop);
-        QTest::mouseClick(pause, Qt::LeftButton);
+        QTest::mouseClick(play, Qt::LeftButton);
         QVERIFY(play->isEnabled());
-        QVERIFY(!pause->isEnabled());
+        QCOMPARE(play->toolTip(), QStringLiteral("再生 (Space)"));
         QTest::qWait(250); // Allow the video widget to present its paused frame.
         const QString screenshot = qEnvironmentVariable("MEDIAPLAYER_SCREENSHOT");
         if (!screenshot.isEmpty()) QVERIFY(window.grab().save(screenshot));
@@ -848,19 +847,21 @@ private slots:
         window.show();
         auto *backend = window.findChild<MediaBackend *>();
         auto *play = window.findChild<QPushButton *>("playButton");
-        auto *pause = window.findChild<QPushButton *>("pauseButton");
         auto *backward = window.findChild<QPushButton *>("seekBackwardButton");
         auto *forward = window.findChild<QPushButton *>("seekForwardButton");
         auto *mute = window.findChild<QPushButton *>("muteButton");
         auto *volume = window.findChild<QSlider *>("volumeSlider");
-        QVERIFY(play && pause && backward && forward && mute && volume);
-        for (auto *button : {play, pause, backward, forward}) {
+        QVERIFY(play && backward && forward && mute && volume);
+        QCOMPARE(play->toolTip(), QStringLiteral("再生 (Space)"));
+        for (auto *button : {play, backward, forward}) {
             QVERIFY(!button->isEnabled());
             QVERIFY(!button->icon().isNull());
             QVERIFY(!button->accessibleName().isEmpty());
         }
         window.openFile(file.fileName());
         QTRY_VERIFY(backend->playing() && backend->seekable());
+        QCOMPARE(play->toolTip(), QStringLiteral("一時停止 (Space)"));
+        const auto pauseIcon = play->icon().pixmap(22, 22).toImage();
         auto *seek = window.findChild<QSlider *>("seekSlider");
         QEnterEvent audioHover(QPointF(20, 10), QPointF(20, 10), QPointF(seek->mapToGlobal(QPoint(20, 10))));
         QApplication::sendEvent(seek, &audioHover);
@@ -868,8 +869,10 @@ private slots:
         QVERIFY(!window.findChild<QLabel *>("seekPreviewImage")->isVisible());
         QEvent audioLeave(QEvent::Leave);
         QApplication::sendEvent(seek, &audioLeave);
-        QTest::mouseClick(pause, Qt::LeftButton);
+        QTest::mouseClick(play, Qt::LeftButton);
         QTRY_COMPARE(backend->player()->playbackState(), QMediaPlayer::PausedState);
+        QCOMPARE(play->toolTip(), QStringLiteral("再生 (Space)"));
+        QVERIFY(play->icon().pixmap(22, 22).toImage() != pauseIcon);
         backend->seek(12000);
         QTest::mouseClick(forward, Qt::LeftButton);
         QTRY_COMPARE(backend->position(), qint64(22000));
@@ -918,6 +921,10 @@ private slots:
         window.findChild<QAction *>("stopAction")->trigger();
         QCOMPARE(backend->position(), qint64(0));
         QVERIFY(!backend->playing());
+        QCOMPARE(play->toolTip(), QStringLiteral("再生 (Space)"));
+        backend->close();
+        QVERIFY(!play->isEnabled());
+        QCOMPARE(play->toolTip(), QStringLiteral("再生 (Space)"));
     }
     void decode_data()
     {
