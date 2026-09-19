@@ -27,7 +27,7 @@ windows\rebuild_and_run.bat
 ```
 
 CMakeでMSVC x64 Releaseを構成し、クリーンビルド、Qt DLL配置後にプレイヤーを起動する。
-生成先は `windows/build/msvc-release/Release/Orange.exe`。
+生成先は `windows/build/msvc-release-<環境ID>/Release/Orange.exe`。実際のパスはビルド時に表示する。
 起動中の対象プレイヤーがある場合はエラーで止まるので、閉じてから再実行する。
 
 ## 配布用フォルダの作成
@@ -56,8 +56,23 @@ Qt 6.8.3 / VLC 3.0.23で、454ファイル・230.5MiBから372ファイル・191
 既知の不安定なホバーテスト2件は今回のテスト対象から除外した。別PC・別DVDの追加検証は未実施。
 
 別のQtキットを使う場合は、事前に `QT_MSVC_DIR` をMSVC x64版のルートに設定する。
-既定は `F:\Qt\6.8.3\msvc2022_64`。MinGW版とは混在させない。
-スクリプトのFFmpeg DLL確認はこのQt 6.8.3キットのバージョンを対象にしている。
+未指定なら互換性のあるQtを自動検出する。MinGW版とは混在させない。
+コマ送り処理に合わせ、FFmpeg 7系のDLL（avcodec/avformat 61、avutil 59、swscale 8、swresample 5）が揃ったQt 6.8以降のMSVC x64キットを選択する。
+
+### 開発環境の自動検出
+
+`scripts/build-environment.ps1` をビルド・配布・環境確認で共用する。ツールの自動インストールやシステム環境変数の変更は行わない。
+
+- Qt：`-QtRoot`（環境確認のみ）、`QT_MSVC_DIR` の明示指定を優先。未指定ならPATH、`CMAKE_PREFIX_PATH`、`QTDIR` / `QT_ROOT`、Qtのインストール情報、各ファイルシステムドライブの `Qt`、Program Files・ユーザーディレクトリの `Qt` を検索し、条件を満たす最新バージョンを選ぶ。検索は所定の階層のみで、ドライブ全体は走査しない。
+- CMake：`ORANGE_CMAKE` にexeの絶対パスを指定可能。未指定ならPATH、Qt付属、Program Files、Visual Studio付属の順で互換性を確認する。
+- Visual Studio：`vswhere` でC++ツールのあるインストールを検出。CMakeが対応するジェネレーターと組み合わせ、インスタンスを明示する。VS 2022以降・v143 x64ツールセットが必要。Windows SDKのヘッダーとx64ライブラリも確認する。
+- VLC：`ORANGE_VLC_DIR` を優先。未指定ならPATH、レジストリ、Program FilesからVLC 3.x x64を検出する。環境確認だけならVLCは不要。
+
+明示指定が不正な場合は別の環境へ黙って切り替えず、理由を表示して終了する。独自配置の環境には上記変数を使用する。選択したQt・CMakeのパスとバージョン、Visual Studio、SDK、VLCをログに表示する。
+ソース配置と検出環境から環境IDを生成するため、別PCへの移動やQt・コンパイラ配置の変更時は別のビルドディレクトリを使用する。既存のビルドディレクトリは保持し、配布先は従来どおり `windows/output/`。
+
+検出処理のテスト：`powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/test-build-environment.ps1`。
+現PCでPATHから開発ツールを外した自動検出、明示指定の優先・不正指定の拒否、環境変更時のビルド先分離を確認。別PCや別バージョンのVisual Studioでの実機検証は未実施。
 自動実行では `MEDIAPLAYER_NO_PAUSE=1` を設定すると、失敗時のpauseを省略できる。
 
 ## 操作
@@ -70,7 +85,7 @@ Qt 6.8.3 / VLC 3.0.23で、454ファイル・230.5MiBから372ファイル・191
 - DVDメニュー操作、チャプター選択、音声／字幕トラック選択、Blu-ray・データISOは初期版の対象外。ISOのホバーは時刻のみで、サムネイルは表示しない。
 - 暗号化されていないDVD-Videoを対象に検証する。すべてのディスク構造や暗号化されたISOの再生は保証しない。
 
-ビルドにはVLC 3.x x64が必要。既定は `C:/Program Files/VideoLAN/VLC`。
+ビルド・配布にはVLC 3.x x64が必要。未指定時は上記の自動検出を使用する。
 別の配置なら `ORANGE_VLC_DIR` を指定する。バッチはDLL・プラグインを出力先の `vlc/` に同梱するので、利用先でのVLCインストールは不要。
 実行時も同じ環境変数でライブラリの場所を上書きできる。VLCがなくても通常動画の再生は可能。
 
@@ -130,7 +145,7 @@ WMV9/WMA、MP4/H.264/AAC、AVI/MPEG-4 Part 2などの検証結果はルートREA
 
 ## 環境確認の実行
 
-リポジトリのルートでPowerShellから実行する。CMakeがPATHにあり、Visual Studio 2022のC++ツールがインストールされていること。
+リポジトリのルートでPowerShellから実行する。Qt・CMake・Visual StudioのC++ツール・Windows SDKを自動検出する。
 
 ```powershell
 .\windows\scripts\check-environment.ps1
@@ -142,7 +157,7 @@ WMV9/WMA、MP4/H.264/AAC、AVI/MPEG-4 Part 2などの検証結果はルートREA
 .\windows\scripts\check-environment.ps1 -QtRoot 'F:\Qt\6.8.3\msvc2022_64'
 ```
 
-生成先は `windows/build/environment-check-msvc/`。確認プログラムはウィンドウを表示せず終了する。
+生成先は `windows/build/environment-check-msvc-<環境ID>/`。確認プログラムはウィンドウを表示せず終了する。
 Qtのパス設定は確認プログラムを動かすプロセス内のみで変更し、実行後に復元する。
 
 今回、Codexのサンドボックス内では環境変数 `Path` / `PATH` の重複によりMSBuildがMSB6001で失敗した。
