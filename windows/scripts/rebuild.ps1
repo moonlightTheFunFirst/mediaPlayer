@@ -1,31 +1,19 @@
-param([ValidateSet('Run', 'Deploy')][string]$Mode = 'Run')
+﻿param([ValidateSet('Run', 'Deploy')][string]$Mode = 'Run')
 $ErrorActionPreference = 'Stop'
 try {
     $windowsRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
     $projectRoot = Split-Path $windowsRoot -Parent
-    $buildDir = Join-Path $windowsRoot 'build/msvc-release'
-    $qtRoot = if ($env:QT_MSVC_DIR) { $env:QT_MSVC_DIR } else { 'F:\Qt\6.8.3\msvc2022_64' }
+    . (Join-Path $PSScriptRoot 'build-environment.ps1')
+    $environment = Resolve-BuildEnvironment -RequireVlc
+    $buildDir = Get-EnvironmentBuildDirectory $windowsRoot 'msvc-release' $environment $projectRoot
+    $qtRoot = $environment.Qt
     $qtBin = Join-Path $qtRoot 'bin'
     $deployTool = Join-Path $qtBin 'windeployqt.exe'
-    $vlcRoot = if ($env:ORANGE_VLC_DIR) { $env:ORANGE_VLC_DIR } else { Join-Path $env:ProgramFiles 'VideoLAN/VLC' }
-    foreach ($relative in @('libvlc.dll', 'libvlccore.dll', 'plugins/access/libdvdnav_plugin.dll', 'COPYING.txt')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $vlcRoot $relative))) { throw "DVD runtime missing: $vlcRoot/$relative. Set ORANGE_VLC_DIR to VLC 3.x x64." }
-    }
-    if ((Get-Item -LiteralPath (Join-Path $vlcRoot 'libvlc.dll')).VersionInfo.FileMajorPart -ne 3) { throw 'DVD playback requires VLC 3.x x64.' }
-    if (-not (Test-Path -LiteralPath $deployTool)) { throw "Qt MSVC kit not found: $qtRoot. Set QT_MSVC_DIR." }
-    $cmake = (Get-Command cmake.exe -ErrorAction SilentlyContinue).Source
-    if (-not $cmake) {
-        $cmake = 'F:\Qt\Tools\CMake_64\bin\cmake.exe'
-        if (-not (Test-Path -LiteralPath $cmake)) { throw 'CMake not found. Add CMake to PATH.' }
-    }
-    # Keep the compiler and Qt runtime from the same MSVC x64 kit.
+    $vlcRoot = $environment.Vlc
+    $cmake = $environment.CMake
     $env:PATH = "$qtBin;$env:PATH"
     $env:QT_PLUGIN_PATH = Join-Path $qtRoot 'plugins'
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-    if (Test-Path -LiteralPath $vswhere) {
-        $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-        if ($vsRoot) { $env:VCINSTALLDIR = (Join-Path $vsRoot 'VC') + '\' }
-    }
+    $env:VCINSTALLDIR = (Join-Path $environment.VisualStudio 'VC') + '\'
     $appExe = Join-Path $buildDir 'Release/Orange.exe'
     $outputDir = Join-Path $windowsRoot 'output'
     foreach ($process in @(Get-Process Orange,mediaPlayer -ErrorAction SilentlyContinue)) {
@@ -35,7 +23,7 @@ try {
     }
     Write-Host "Qt: $qtRoot"
     Write-Host "Build: $buildDir"
-    & $cmake -S $projectRoot -B $buildDir -G 'Visual Studio 17 2022' -A x64 "-DCMAKE_PREFIX_PATH=$qtRoot"
+    & $cmake -S $projectRoot -B $buildDir -G $environment.Generator -A x64 -T v143 "-DCMAKE_GENERATOR_INSTANCE=$($environment.VisualStudio)" "-DCMAKE_SYSTEM_VERSION=$($environment.Sdk)" "-DCMAKE_PREFIX_PATH=$qtRoot"
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
     & $cmake --build $buildDir --config Release --clean-first --parallel
     if ($LASTEXITCODE -ne 0) { throw 'Clean rebuild failed.' }
