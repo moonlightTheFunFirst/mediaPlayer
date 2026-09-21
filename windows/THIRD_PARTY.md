@@ -1,10 +1,11 @@
-# 同梱ライブラリ
+﻿# 同梱ライブラリ
 
-この開発用配布フォルダは Qt 6.8.3 の MSVC x64 キットから、Qt DLL・プラグイン、FFmpeg DLL、MSVCランタイムを収集します。
+この開発用配布フォルダは選択したQtのMSVC／MinGW x64キットから、Qt DLL・プラグイン、FFmpeg DLL、対応するコンパイラランタイムを収集します。
 外部コーデックパックのインストールは前提にしません。
 
 - Qt: https://www.qt.io/ および https://doc.qt.io/qt-6/licensing.html
 - FFmpeg: https://ffmpeg.org/ および https://ffmpeg.org/legal.html
+- MinGWランタイム: libgcc / libstdc++ / libwinpthreadを同梱します。付属コンパイラのgcc・mingw-w64・winpthreadsライセンスを `licenses/MinGW/` に収集します。https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html
 - MSVCランタイム: Microsoft Visual C++ Redistributable。windeployqtが収集した再頒布可能ファイルを使用します。
 
 Qt / FFmpegは動的リンクで使用しています。実際のライセンス条件は使用したQtキットと各同梱コンポーネントに従います。

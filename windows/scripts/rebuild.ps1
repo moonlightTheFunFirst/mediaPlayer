@@ -1,11 +1,14 @@
-﻿param([ValidateSet('Run', 'Deploy')][string]$Mode = 'Run')
+﻿param([ValidateSet('Run', 'Deploy')][string]$Mode = 'Run', [string]$QtRoot, [switch]$RequireVlc)
 $ErrorActionPreference = 'Stop'
+$previousPath = $env:PATH
+$previousPluginPath = $env:QT_PLUGIN_PATH
+$previousVc = $env:VCINSTALLDIR
 try {
     $windowsRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
     $projectRoot = Split-Path $windowsRoot -Parent
     . (Join-Path $PSScriptRoot 'build-environment.ps1')
-    $environment = Resolve-BuildEnvironment -RequireVlc
-    $buildDir = Get-EnvironmentBuildDirectory $windowsRoot 'msvc-release' $environment $projectRoot
+    $environment = Resolve-BuildEnvironment -QtRoot $QtRoot -RequireVlc:$RequireVlc
+    $buildDir = Get-EnvironmentBuildDirectory $windowsRoot ($environment.Compiler.ToLowerInvariant() + '-release') $environment $projectRoot
     $qtRoot = $environment.Qt
     $qtBin = Join-Path $qtRoot 'bin'
     $deployTool = Join-Path $qtBin 'windeployqt.exe'
@@ -13,8 +16,12 @@ try {
     $cmake = $environment.CMake
     $env:PATH = "$qtBin;$env:PATH"
     $env:QT_PLUGIN_PATH = Join-Path $qtRoot 'plugins'
-    $env:VCINSTALLDIR = (Join-Path $environment.VisualStudio 'VC') + '\'
-    $appExe = Join-Path $buildDir 'Release/Orange.exe'
+    if ($environment.Compiler -eq 'MSVC') {
+        $env:VCINSTALLDIR = (Join-Path $environment.VisualStudio 'VC') + '\'
+    } else { $env:PATH = "$qtBin;$($environment.MinGW)/bin;$env:PATH" }
+    if (-not $vlcRoot) { Write-Warning 'VLC not found. DVD ISO playback requires VLC 3.x x64; normal media playback is available.' }
+    $exeSubdir = if ($environment.Compiler -eq 'MSVC') { 'Release' } else { '' }
+    $appExe = Join-Path (Join-Path $buildDir $exeSubdir) 'Orange.exe'
     $outputDir = Join-Path $windowsRoot 'output'
     foreach ($process in @(Get-Process Orange,mediaPlayer -ErrorAction SilentlyContinue)) {
         if ($process.Path -eq (Join-Path $buildDir 'Release/mediaPlayer.exe') -or ($Mode -eq 'Deploy' -and $process.Path -eq (Join-Path $outputDir 'mediaPlayer.exe')) -or $process.Path -eq $appExe -or ($Mode -eq 'Deploy' -and $process.Path -eq (Join-Path $outputDir 'Orange.exe'))) {
@@ -23,7 +30,7 @@ try {
     }
     Write-Host "Qt: $qtRoot"
     Write-Host "Build: $buildDir"
-    & $cmake -S $projectRoot -B $buildDir -G $environment.Generator -A x64 -T v143 "-DCMAKE_GENERATOR_INSTANCE=$($environment.VisualStudio)" "-DCMAKE_SYSTEM_VERSION=$($environment.Sdk)" "-DCMAKE_PREFIX_PATH=$qtRoot"
+    & $cmake -S $projectRoot -B $buildDir @(Get-BuildConfigureArguments $environment)
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
     & $cmake --build $buildDir --config Release --clean-first --parallel
     if ($LASTEXITCODE -ne 0) { throw 'Clean rebuild failed.' }
@@ -50,22 +57,25 @@ try {
     # frames are decoded by Multimedia, not by the still-image format plugins.
     & $deployTool --release --force --compiler-runtime --translations ja --include-plugins ffmpegmediaplugin --skip-plugin-types iconengines,networkinformation,tls --exclude-plugins qgif,qicns,qjpeg,qsvg,qtga,qtiff,qwbmp,qwebp --dir $deployDir (Join-Path $deployDir 'Orange.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Qt runtime deployment failed.' }
-    $vlcOutput = Join-Path $deployDir 'vlc'
-    New-Item -ItemType Directory -Force -Path $vlcOutput | Out-Null
-    foreach ($name in @('libvlc.dll', 'libvlccore.dll', 'COPYING.txt')) {
-        Copy-Item -LiteralPath (Join-Path $vlcRoot $name) -Destination $vlcOutput -Force
+    if ($vlcRoot) {
+        $vlcOutput = Join-Path $deployDir 'vlc'
+        New-Item -ItemType Directory -Force -Path $vlcOutput | Out-Null
+        foreach ($name in @('libvlc.dll', 'libvlccore.dll', 'COPYING.txt')) {
+            Copy-Item -LiteralPath (Join-Path $vlcRoot $name) -Destination $vlcOutput -Force
+        }
+        # Keep playback/decoding and rendering fallbacks. Orange does not use VLC's
+        # own GUI, streaming/encoding outputs, discovery, visualizers or remote control.
+        $vlcPluginTypes = @('access', 'audio_filter', 'audio_mixer', 'audio_output',
+            'codec', 'd3d11', 'd3d9', 'demux', 'logger', 'misc', 'packetizer', 'spu',
+            'stream_filter', 'text_renderer', 'video_chroma', 'video_filter', 'video_output')
+        $vlcPluginsOutput = Join-Path $vlcOutput 'plugins'
+        New-Item -ItemType Directory -Force -Path $vlcPluginsOutput | Out-Null
+        foreach ($type in $vlcPluginTypes) {
+            Copy-Item -LiteralPath (Join-Path $vlcRoot "plugins/$type") -Destination $vlcPluginsOutput -Recurse -Force
+        }
     }
-    # Keep playback/decoding and rendering fallbacks. Orange does not use VLC's
-    # own GUI, streaming/encoding outputs, discovery, visualizers or remote control.
-    $vlcPluginTypes = @('access', 'audio_filter', 'audio_mixer', 'audio_output',
-        'codec', 'd3d11', 'd3d9', 'demux', 'logger', 'misc', 'packetizer', 'spu',
-        'stream_filter', 'text_renderer', 'video_chroma', 'video_filter', 'video_output')
-    $vlcPluginsOutput = Join-Path $vlcOutput 'plugins'
-    New-Item -ItemType Directory -Force -Path $vlcPluginsOutput | Out-Null
-    foreach ($type in $vlcPluginTypes) {
-        Copy-Item -LiteralPath (Join-Path $vlcRoot "plugins/$type") -Destination $vlcPluginsOutput -Recurse -Force
-    }
-    foreach ($relative in @('Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll', 'platforms/qwindows.dll', 'multimedia/ffmpegmediaplugin.dll', 'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll', 'swresample-5.dll', 'swscale-8.dll', 'vc_redist.x64.exe')) {
+    $compilerRuntime = if ($environment.Compiler -eq 'MSVC') { @('vc_redist.x64.exe') } else { @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll') }
+    foreach ($relative in (@('Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Multimedia.dll', 'Qt6MultimediaWidgets.dll', 'platforms/qwindows.dll', 'multimedia/ffmpegmediaplugin.dll', 'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll', 'swresample-5.dll', 'swscale-8.dll') + $compilerRuntime)) {
         if (-not (Test-Path -LiteralPath (Join-Path $deployDir $relative))) { throw "Missing runtime: $relative" }
     }
     Set-Content -LiteralPath (Join-Path $deployDir 'qt.conf') -Value "[Paths]`nPrefix=.`nPlugins=." -Encoding ASCII
@@ -73,6 +83,13 @@ try {
     $licenseOutput = Join-Path $deployDir 'licenses'
     New-Item -ItemType Directory -Path $licenseOutput -Force | Out-Null
     Get-ChildItem -LiteralPath (Join-Path $windowsRoot 'licenses') | Copy-Item -Destination $licenseOutput -Recurse -Force
+    if ($environment.MinGW) {
+        $compilerLicenses = Join-Path $licenseOutput 'MinGW'
+        New-Item -ItemType Directory -Path $compilerLicenses -Force | Out-Null
+        foreach ($component in @('gcc', 'mingw-w64', 'winpthreads')) {
+            Copy-Item -LiteralPath (Join-Path $environment.MinGW "licenses/$component") -Destination $compilerLicenses -Recurse -Force
+        }
+    }
     if ($Mode -eq 'Deploy') {
         $sha = [Security.Cryptography.SHA256]::Create()
         try {
@@ -109,4 +126,8 @@ try {
 } catch {
     Write-Error $_ -ErrorAction Continue
     exit 1
+} finally {
+    $env:PATH = $previousPath
+    $env:QT_PLUGIN_PATH = $previousPluginPath
+    $env:VCINSTALLDIR = $previousVc
 }
